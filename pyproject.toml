@@ -1,0 +1,95 @@
+[project]
+name = "kepler-mech-interp"
+version = "0.1.0"
+description = "Reverse-engineering a small transformer that solves Kepler's equation."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "matplotlib>=3.10.9",
+    "numpy>=2.4.6",
+    "scipy>=1.17.1",
+    "torch>=2.5",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.9,<1",
+    # paper PDF build (papers/*/repro/build_pdf.py): pandoc + typst as wheels, no system TeX
+    "pypandoc-binary>=1.13",
+    "typst>=0.13",
+    "pytest>=9.1.1",
+]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 120
+# scratch dirs are sketchpads — exempt from the standard entirely.
+extend-exclude = ["scratch"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+# Two buckets. First: general house style — rules that fight conventions this
+# codebase uses on purpose. Second: ML/research-specific — these flag intentional
+# idioms, not defects. Trust the math notation and the CLI-tool shape over the linter.
+ignore = [
+    # ── general house style ───────────────────────────────────────────────────
+    "D",       # docstrings — module docstrings exist; per-function is noise
+    "ANN",     # annotations — cfg/numpy/torch signatures are deliberately untyped
+    "COM812",  # trailing comma — formatter handles this
+    "EM",      # exception message formatting — overly strict
+    "TRY003",  # long exception messages — ValueError("msg") is fine
+    "TRY300",  # return in try — stylistic noise
+    "TRY301",  # raise in try — over-engineering
+    "FBT001",  # boolean positional arg — noisy
+    "FBT002",  # boolean default value — noisy
+    "FBT003",  # boolean positional value in call — noisy
+    "PLR0913", # too many arguments — math/plot functions have many
+    "PLR0915", # too many statements — main()/plot functions are long
+    "PLR0912", # too many branches — out_activation dispatch etc.
+    "C901",    # mccabe complexity — research kernels are legitimately branchy
+    "ARG",     # unused arguments — CLI/interface signatures need them
+    "BLE001",  # blind except — one deliberate site: scaling_fit's floor-fit
+               # diagnostic catches everything so a failed fit can't kill the repro
+    "PLC0415", # imports not at top — deferred torch imports are a pattern
+    "TC",      # type-checking imports — pyright handles this
+    "N999",    # invalid module name
+    "SIM102",  # merge nested if — false positives with elif+continue
+    # ── ML / research-specific ────────────────────────────────────────────────
+    "N802",    # function name not lowercase — math (model_E, etc.)
+    "N803",    # argument name not lowercase — math (M, n_M, E, ...)
+    "N806",    # variable not lowercase — math (B, L, D, MM, EE, F, ...)  [199 hits]
+    "N812",    # lowercase imported as non-lowercase — e.g. F = torch.nn.functional
+    "N815",    # mixedCase in class scope
+    "N816",    # mixedCase in global scope — math (n_M, n_e) in module-level stage scripts
+    "T201",    # print — CLI analysis tools print results as their output  [130 hits]
+    "PLR2004", # magic value — 4096 batch, 1e-12 eps, etc. are inline by design
+    "E702",    # multiple statements (semicolon) — ax.set_xlabel(); ax.set_ylabel()
+    "E701",    # multiple statements (colon)
+    "S101",    # assert — used for shape/precondition checks
+    "B905",    # zip without strict — equal-length by construction
+    "PTH",     # pathlib enforcement — open()/os.path are fine here
+    "RUF001",  # ambiguous unicode in strings — math symbols in comments/labels
+    "RUF002",  # ambiguous unicode in docstrings
+    "RUF003",  # ambiguous unicode in comments
+    "RUF059",  # unused unpacked variable — `B, L, D = x.shape` math destructuring
+    "S603",    # subprocess call — trusted internal `uv run -m src.*` orchestration
+    "S607",    # partial executable path — trusted internal `uv`/git invocations
+    "FIX002",  # line contains TODO — TODOs are fine in an active research repo
+    "TD002",   # missing TODO author — single-author repo
+    "TD003",   # missing TODO issue link — no issue tracker
+]
+
+[tool.ruff.lint.per-file-ignores]
+# papers/ is orchestration scripts: subprocess fan-out, no package __init__,
+# and env-before-torch-import ordering in reproduce_analysis.py.
+# (S603/S607 are already ignored globally, so they aren't repeated here.)
+"papers/**" = ["INP001", "E402", "E401", "PLW1510"]
+# S106 reads M_token="M50r" (a run-NAME token) as a hardcoded password.
+"papers/*/model_registry.py" = ["S106"]
+# _bootstrap re-exports registry (it owns sys.path, so it owns the import that
+# depends on it; stages do `from _bootstrap import model_registry`) -> F401 is the point.
+"papers/*/repro/_bootstrap.py" = ["INP001", "E402", "F401"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

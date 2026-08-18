@@ -1,0 +1,8 @@
+{
+  "n_params": 202753,
+  "n_trainable": 202753,
+  "device": "mps",
+  "torch_version": "2.12.0",
+  "git_commit": "4cd61c424e2096abfe2aa42742a9f5fba897ca93",
+  "git_dirty": true
+}

@@ -1,0 +1,33 @@
+{
+  "n_digits": 12,
+  "d_model": 128,
+  "n_heads": 2,
+  "n_layers": 1,
+  "d_mlp": 512,
+  "dropout": 0.0,
+  "activation": "gelu",
+  "out_activation": "linear",
+  "loss": "mse",
+  "batch_size": 256,
+  "learning_rate": 0.001,
+  "weight_decay": 0.01,
+  "betas": [
+    0.9,
+    0.98
+  ],
+  "n_steps": 25000,
+  "warmup_steps": 1000,
+  "lr_decay_steps": 25000,
+  "lr_post_decay_factor": 1.0,
+  "lr_floor_frac": 0.0,
+  "e_max": 0.999,
+  "seed": 0,
+  "eval_every": 5000,
+  "eval_n_M": 400,
+  "eval_n_e": 200,
+  "eval_jitter": true,
+  "run_name": "d128_l1_h2_gelu_lin_mse_25k_s0",
+  "checkpoint_dir": "papers/ditullio-e-register/models",
+  "save_at_steps": [],
+  "snapshot_every": 0
+}
