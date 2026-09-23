@@ -76,7 +76,7 @@ model_pts, model_ranges = model_points()
 ladder_rows = []  # companion CSV: the plotted ladder (family, rung, median, bulk_max)
 families = [
     ("Fourier–Bessel (order)", "C3", [(str(N), *stats(fourier_bessel(M, e, N))) for N in FB_ORDERS]),
-    ("model width @800k", "C0", model_pts),
+    ("model width, 800k steps", "C0", model_pts),
     ("Boyd (degree)", "0.45", [(str(deg), *stats(boyd_grid(M, e, degree=deg))) for deg in BOYD_DEGREES]),
 ]
 

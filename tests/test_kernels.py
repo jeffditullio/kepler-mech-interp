@@ -43,7 +43,7 @@ from src.kernels.kepler import (
     rotation_ramp,
     wrap_M,
 )
-from src.kernels.metrics import abs_error_stats, e_M_dep, logit_from_output, prediction_metrics
+from src.kernels.metrics import abs_error_stats, attention_e_sensitivity, e_M_dep, logit_from_output, prediction_metrics
 from src.kernels.place_gain import digit_writes, first_order_sensitivity
 
 # ----------------------------------------------------------------------
@@ -503,3 +503,16 @@ def test_e_purity_cancellation_detects_opposite_raw_e():
     mlp2 = _coefs(e=0.5, **{"e*sinM": 0.1})
     out2 = e_purity(attn, mlp2, stds, 0.1, 0.1)
     assert out2["raw_e_cancellation"] == pytest.approx(2.0)
+
+
+def test_attention_e_sensitivity_sees_e_not_M():
+    n_e, n_M, nh, L = 5, 7, 2, 3
+    ee = np.linspace(0, 1, n_e)[:, None, None, None]
+    mm = np.linspace(0, 1, n_M)[None, :, None, None]
+    A = np.zeros((n_e, n_M, nh, L))
+    A[..., 0, 0] = ee[..., 0, 0]  # head 0, key 0: moves with e only
+    A[..., 1, 1] = mm[..., 0, 0]  # head 1, key 1: moves with M only
+    sens = attention_e_sensitivity(A.reshape(n_e * n_M, nh, L), n_e, n_M)
+    assert sens.shape == (nh, L)
+    assert np.isclose(sens[0, 0], np.linspace(0, 1, n_e).std())
+    assert np.allclose(sens[1], 0)  # an M-only read is invisible to e-sensitivity

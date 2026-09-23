@@ -20,9 +20,10 @@ Usage:
 import numpy as np
 
 from src.analysis._cli import Result, Skip, check_standard_task, run_tool
-from src.analysis.attribution import attribute
+from src.analysis.attribution import attribute, attribute_raw
 from src.core.data import make_eval_grid, make_eval_inputs
 from src.core.runs import Bundle, build_model, predict_E
+from src.instrument.capture import ln_exact_terms
 from src.kernels.fits import e_purity, fit, library
 from src.kernels.kepler import kepler_truth, kepler_truth_extended
 
@@ -56,7 +57,18 @@ def analyze(bundle: Bundle) -> Result | Skip:
     output_r2
     output_coefs       library term -> calibrated output coefficient (rad)
     library_resid_med  median |E_pred - 11-term fit| (rad): how much finer the model is than the formula
-    component_coefs    component -> (r2, {term: coef}), logit space
+    component_coefs    component -> (r2, {term: coef}): the READOUT PROJECTION w_eff . write
+                       (uncentered, unscaled; what each write puts on the readout direction)
+    centered_component_coefs  the same with LayerNorm's centering folded in, w_c . write, and
+                       no scale: holds centering fixed against the exact rows
+    exact_component_coefs  direct logit attribution: (w_c . write) / sigma(x), the cached
+                       per-input LN scale kept in; the rows sum to the logit and the 'sum'
+                       row is the logit
+    attn_e_signal_share  attention's share of the e*sin(nM) signal (kernels.fits.e_purity
+                       convention: rms surface content, attn / (attn + mlp)) under each of
+                       the three reads: projection, centered, exact
+    exact_max_err      max |sum of exact rows + const - logit| (the identity check)
+    sigma_range        (min, max) of the final LN's per-input scale over the grid
     truth_r2
     truth_coefs        exact solution through the same library on the same grid
     emb_std            ANS-embedding constancy over the grid
@@ -81,7 +93,7 @@ def analyze(bundle: Bundle) -> Result | Skip:
     # Full 11-term coefficient matrix: least squares is linear in the target, so
     # against the same library the fits are exactly additive (attn_i + mlp_i =
     # layer_i; emb + layers = total) -- checkable by eye, column by column.
-    out.append("  per-component (logit space, relative -- shows the split, not magnitudes;")
+    out.append("  readout projection w_eff . write (logit space, relative -- shows the split, not magnitudes;")
     out.append("  full coefficient matrix, exactly additive: attn_i + mlp_i = layer_i, emb + layers = total):")
     out.append("  component   R^2 " + "".join(f"{n:>9s}" for n in names))
     # The identity: logit = w_eff·emb(ANS) + Σ w_eff·attn_i + Σ w_eff·mlp_i (exact,
@@ -118,6 +130,53 @@ def analyze(bundle: Bundle) -> Result | Skip:
         f"   parity leakage attn {purity['parity_leakage']['attn']:.1f} mlp {purity['parity_leakage']['mlp']:.1f}"
         f"   raw-e cancellation {purity['raw_e_cancellation']:.2f}"
     )
+    # (3) direct logit attribution, the EXACT split through the final LayerNorm:
+    # the same writes, centered and divided by the cached per-input LN scale,
+    # sum to the logit (checked here). Parity binds this sum, not the
+    # projection rows above: every write carries even content along the
+    # readout and only the scaled sum is odd (after the normalization offset).
+    # With the final LN off the exact rows equal the projection rows and the
+    # writes cancel pairwise. The centered-unscaled block in between holds
+    # centering fixed, so a change from projection to exact is the scale's.
+    model_raw, raw, logit = attribute_raw(cfg, ck, device)
+    terms, const, sigma = ln_exact_terms(model_raw, raw)
+    recon = sum(terms.values()) + const
+    exact_max_err = float(np.abs(recon - logit).max())
+    centered_coefs, centered_resid_rms = {}, {}
+    out.append("  centered readout projection w_c . write, w_c = w_eff - mean(w_eff) (no scale; additive):")
+    for name_x, scaled in terms.items():
+        y = scaled * sigma
+        r2x, _topx, coefx = fit(y, X, names)
+        centered_coefs[name_x] = (r2x, dict(zip(names, coefx)))
+        centered_resid_rms[name_x] = float(np.std((y - y.mean()) - X @ coefx))
+        out.append(f"  {name_x:8s}c {r2x:.3f}" + "".join(f"{c:+9.4f}" for c in coefx))
+    out.append(
+        f"  direct logit attribution (w_c . write) / sigma(x) (rows + const sum to the logit,"
+        f" max |sum - logit| {exact_max_err:.1e}; sigma(x) {sigma.min():.4f}..{sigma.max():.4f},"
+        f" median {np.median(sigma):.4f}):"
+    )
+    exact_coefs, exact_resid_rms = {}, {}
+    for name_x, y in [*terms.items(), ("sum", recon)]:
+        if y.std() == 0:
+            out.append(f"  {name_x:8s}~ const")
+            continue
+        r2x, _topx, coefx = fit(y, X, names)
+        exact_coefs[name_x] = (r2x, dict(zip(names, coefx)))
+        exact_resid_rms[name_x] = float(np.std((y - y.mean()) - X @ coefx))
+        out.append(f"  {name_x:8s}~ {r2x:.3f}" + "".join(f"{c:+9.4f}" for c in coefx))
+    # one convention for the three reads: e_purity's rms-content share
+    shares = {"projection": purity["attn_e_signal_share"]}
+    for tag, coefs_x, rms_x in (
+        ("centered", centered_coefs, centered_resid_rms),
+        ("exact", exact_coefs, exact_resid_rms),
+    ):
+        shares[tag] = e_purity(coefs_x["attn0"][1], coefs_x["mlp0"][1], feature_std, rms_x["attn0"], rms_x["mlp0"])[
+            "attn_e_signal_share"
+        ]
+    out.append(
+        "  attn share of e*sin(nM) signal (rms content, attn / (attn + mlp)):  "
+        + "  ".join(f"{tag} {v:.3f}" for tag, v in shares.items())
+    )
     # The output row of the paper's component table: same library, but the target
     # is E_pred through the actual LayerNorm + denormalization -- radians, not the
     # relative logit units above, so it is NOT additive with those rows.
@@ -136,6 +195,11 @@ def analyze(bundle: Bundle) -> Result | Skip:
         library_resid_med=resid_med,
         component_coefs=component_coefs,
         e_purity=purity,
+        centered_component_coefs=centered_coefs,
+        exact_component_coefs=exact_coefs,
+        exact_max_err=exact_max_err,
+        attn_e_signal_share=shares,
+        sigma_range=(float(sigma.min()), float(sigma.max())),
         truth_r2=r2t,
         truth_coefs=dict(zip(names, coeft)),
         emb_std=emb_std,

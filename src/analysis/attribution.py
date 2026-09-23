@@ -31,7 +31,7 @@ from src.analysis._cli import Result, run_tool, step_suffix
 from src.analysis._plot import grid_extent
 from src.core.data import make_eval_grid, make_eval_inputs
 from src.core.runs import Bundle, build_model
-from src.instrument.capture import ans_embedding, token_batches, w_eff, write_projection_hook
+from src.instrument.capture import ans_embedding, raw_write_hook, token_batches, w_eff, write_projection_hook
 from src.kernels.metrics import e_M_dep
 
 
@@ -61,6 +61,33 @@ def attribute(cfg, ck, device):
         comps[k] = np.concatenate(v)
     MM, EE, _ = make_eval_grid(cfg)
     return comps, MM, EE
+
+
+@torch.no_grad()
+def attribute_raw(cfg, ck, device):
+    """Raw residual writes (N, d_model) per component at the readout position,
+    plus the logit (the head output, before any output map), for the exact
+    LayerNorm-scaled split (capture.ln_exact_terms). Returns (model, comps, logit)."""
+    model = build_model(cfg, ck, device)
+    writes, logit_chunks = {}, []
+    handles = []
+    for li, blk in enumerate(model.blocks):
+        handles.append(blk.attn.register_forward_hook(raw_write_hook(writes, f"attn{li}")))
+        handles.append(blk.mlp.register_forward_hook(raw_write_hook(writes, f"mlp{li}")))
+    handles.append(
+        model.head.register_forward_hook(lambda _m, _i, out: logit_chunks.append(out.squeeze(-1).cpu().numpy()))
+    )
+    inputs, _ = make_eval_inputs(cfg)
+    emb_chunks = []
+    for tok in token_batches(inputs, device):
+        emb_chunks.append(ans_embedding(model, tok).cpu().numpy())
+        model(tok)
+    for h in handles:
+        h.remove()
+    comps = {"emb": np.concatenate(emb_chunks)}
+    for k, v in writes.items():
+        comps[k] = np.concatenate(v)
+    return model, comps, np.concatenate(logit_chunks)
 
 
 def plot(comps, MM, EE, title, out_path, M_half_range):

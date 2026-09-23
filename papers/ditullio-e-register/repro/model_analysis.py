@@ -34,8 +34,21 @@ MODELS = PAPER_DIR / "models"
 
 PRIMARY = "d8_l1_h2_gelu_lin_mse_800k_s0"
 DEEP_PICKS = [
-    # the primary carries the full anatomy story (claims Rows 9/10)
-    (PRIMARY, ["register_decode", "das_register", "comb_depth", "comb_ablation", "frozen_ln"]),
+    # the primary carries the full anatomy story (claims Rows 9/10) and the
+    # residual-shape test over Boyd degrees 3-9 (App. H; Row 4)
+    (
+        PRIMARY,
+        [
+            "register_decode",
+            "das_register",
+            "comb_depth",
+            "comb_ablation",
+            "frozen_ln",
+            "error_pattern",
+            "neuron_tuning",
+            "ablation",
+        ],
+    ),
     # lnoff twins: anatomy relearned + damage matches |c|*sigma (Rows 10/17)
     *[(f"d8_l1_h2_gelu_lnoff_lin_mse_800k_s{s}", ["comb_ablation", "frozen_ln"]) for s in range(5)],
     # d128: does width buy a third-digit corrector? (open question)

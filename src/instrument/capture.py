@@ -5,10 +5,14 @@ This is the ONLY layer where forward passes meet hooks and surgery. The interp
 tools (src/analysis) define WHAT to capture; the pure math they feed lives in
 src/kernels. Primitives here:
 
-  - w_eff            : the effective readout direction (DLA fold)
+  - w_eff            : the effective readout direction (the readout projection's direction)
   - token_batches    : the batched-forward loop every hooked capture shares
   - ans_embedding    : embedding direct path at the readout (ANS) token
   - write_projection_hook : project a component's readout-position write
+  - raw_write_hook / ln_exact_terms : a component's raw readout-position
+                         write, and the exact per-component logit split
+                         through the final LayerNorm (centered w_eff over the
+                         per-input scale), which sums to the logit
   - recompute_qkv    : per-head q/k/v from a module input (SDPA hides them)
   - head_ov          : one head's OV weight slices
   - patched_attn_forward / patched_mlp_forward : ablation surgery
@@ -44,10 +48,12 @@ def _with_hook(module, fn, *, pre=False):
 
 
 def w_eff(model):
-    """Effective readout direction w_eff = head.weight ∘ ln_f.gain -- the
-    standard direct-logit-attribution fold (ignores the shared per-input
-    1/sigma and mean-subtraction). With the final LN off (ln_f = Identity,
-    Config.final_ln=False) there is nothing to fold and w_eff is exact."""
+    """Effective readout direction w_eff = head.weight ∘ ln_f.gain. Projecting
+    a write on it is the READOUT PROJECTION: the write's content along the
+    readout direction before the final LayerNorm's mean-subtraction and shared
+    per-input 1/sigma. Direct logit attribution keeps both (ln_exact_terms).
+    With the final LN off (ln_f = Identity, Config.final_ln=False) the two
+    coincide and w_eff is exact."""
     if isinstance(model.ln_f, torch.nn.Identity):
         return model.head.weight[0].detach()
     return (model.head.weight[0] * model.ln_f.weight).detach()
@@ -78,6 +84,41 @@ def write_projection_hook(store, name, w):
         store.setdefault(name, []).append((out[:, -1, :] @ w).cpu().numpy())
 
     return hook
+
+
+def raw_write_hook(store, name):
+    """Forward hook: append the component's raw residual write at the readout
+    position, (B, d_model) numpy, to store[name]."""
+
+    def hook(_m, _inp, out):
+        store.setdefault(name, []).append(out[:, -1, :].cpu().numpy())
+
+    return hook
+
+
+def ln_exact_terms(model, comps):
+    """The exact per-component split of the logit through the final LayerNorm.
+    With x the sum of the raw writes at the readout position,
+
+        logit = sum_c (w_c . c) / sigma(x) + const,
+
+    w_c = w_eff - mean(w_eff) (LN's mean subtraction folded into the readout),
+    sigma(x) the per-input LN std, const = head.bias + head.weight . ln_f.bias.
+    This is direct logit attribution with the cached scale kept in; the readout
+    projection w_eff . c alone drops both the centering and the 1/sigma. With the
+    final LN off the identity is w_eff . c + head.bias. Returns
+    (terms {name: (N,)}, const, sigma (N,)); sum(terms) + const == logit."""
+    w = w_eff(model).cpu().numpy()
+    x = sum(comps.values())
+    n = x.shape[0]
+    if isinstance(model.ln_f, torch.nn.Identity):
+        w_c, sigma, const = w, np.ones(n), float(model.head.bias.item())
+    else:
+        w_c = w - w.mean()
+        mu = x.mean(axis=1, keepdims=True)
+        sigma = np.sqrt(((x - mu) ** 2).mean(axis=1) + model.ln_f.eps)
+        const = float(model.head.bias.item() + (model.head.weight[0] @ model.ln_f.bias).item())
+    return {k: (c @ w_c) / sigma for k, c in comps.items()}, const, sigma
 
 
 def recompute_qkv(attn, x, nh, dh):

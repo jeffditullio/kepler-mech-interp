@@ -28,20 +28,31 @@ set {1, M, sinM, cosM, sin2M, cos2M, e, e·sinM, e·cosM, e·sin2M, M·e};
 | depth | attention depth | `attention_M/e/gap` | how many places attention routes | leading run of places with head-summed mean mass − median(tail) > 5·std(tail) |
 | read | QK profile | (audit only) | where the readout query looks; which read moves with e | mean attention per key position over the grid; std over e of M-averaged weights |
 | read | OV transfer curve | `ov_top_*`, `ov_sum_*` (`rho`, `r`, `span`) | is a digit read as a quantity | f_h(d) = w_eff·W_OV_h·tok(d), d = 0…9; "sum" = Σ_h f_h; stats \|Spearman\|, \|Pearson\|, max−min |
+| read | read follows the line | (stage stdout) | does the read's shape track the line's shape | 2×2 over the family: clean line (\|pc1_spearman\| = 1.00) vs deformed × monotone read (\|ov_sum_rho\| ≥ 0.95) vs soft; odds ratio + Fisher exact p |
 | read | head organization | `dissoc` | which heads carry the read | single / double / distributed from per-head mean-ablation |
 | jobs | output literal fit | `dec_R2`, `dec_M`, `dec_esinM`, `library_resid_med` | what formula the output computes | least squares of E_pred (radians) on the library; median residual |
-| jobs | component fits | (audit only) | which component writes which term | each component's write, projected on w_eff, fit on the library (logit space, additive) |
+| jobs | component fits | (audit only) | which component writes which term | the readout projection: each component's write, projected on w_eff, fit on the library (logit space, additive; before the final LayerNorm's centering and per-input scale) |
+| jobs | direct logit attribution | (audit only: the decompose audit's `~` rows; Table A5) | each component's share of the logit with the cached LayerNorm scale kept in | (w_c · write) / σ(x), w_c = w_eff − mean(w_eff); rows + const sum to the logit (identity error printed); the `c` rows in between hold centering fixed with no scale |
+| jobs | attention's e-share, three reads | (audit line) | which read moves attention's share of the e·sin(nM) signal | `e_purity` convention (rms surface content, attn / (attn + mlp)) under projection / centered / exact; primary 0.024 / 0.023 / 0.328 |
+| jobs | capstone logit scale | `capstone_logit_std`, `capstone_logit_rmse` (classical_comparison audit, sigmoid specimen) | why R² 0.993 on the logit is not a small error | std of the model's logit over the grid; RMSE of the 11-term fit in logit units |
 | jobs | e-purity | `purity_attn_share`, `parity_leak_attn/mlp`, `raw_e_cancellation` | does attention write e-corrections along the readout | rms e·sin(nM) content attn/(attn+mlp), content = \|coef\|·std(feature); forbidden-term rms / own fit-residual rms; \|c_attn[e]+c_mlp[e]\| / max\|each\| |
 | jobs | MLP load | `mlp_factor` | how load-bearing the MLP is | median error with MLP mean-ablated ÷ baseline |
-| register | rank-1 share | `register_share` | is the write's e-content one direction | top principal-direction variance share of the write's e-content |
+| jobs | output spectrum | `tail_energy`, `cos_energy` (audit only) | how far out the output's harmonics track Bessel; parity of the output | rFFT of E_pred − M along M per e-row: sine energy beyond n = 30 ÷ sine energy; cosine energy ÷ sine energy, all n ≥ 1 |
+| register | rank-1 share | `register_share` | is the write's e-dependence one direction | top principal-direction share of the write's variance across e |
 | register | hiddenness | `register_cos_weff` | is the register invisible to the readout | \|cos(u_e, w_eff)\| |
 | register | kill | `register_surv_esinM` | necessity of the register | surviving e·sinM coef after subtracting raw-e content along u_e, ÷ baseline |
 | register | steering | `register_steer_half_corr/med` | the register is a settable dial | half-dose patch vs the model run at e/2: surface corr; median \|diff\| |
+| register | counterfactual reference | `e_register` audit rows `model@<s>e`, s ∈ {0.75, 0.5, 0.25, 0} (Fig 5's dashed curves) | what the coefficients would be if the register were e exactly | the UNPATCHED model run at s·e, fitted with the same 11-term library in the original (M, e) coordinates; the leading-order lines c_n(1)·s^n are not this reference |
+| register | centered visibility | `cos_ue_wc` (audit line) | the same as hiddenness against the direction the final LayerNorm applies | \|cos(u_e, w_eff − mean(w_eff))\| (primary 0.044 = `cos_ue_weff`) |
 | register | transplant | `register_vs_e0_corr/med` | full patch reproduces e = 0 behavior | full-dose patch vs the model run at e = 0: corr; median \|diff\| |
+| register | do-nothing gaps | `register_vs_e0_noop_med`, `register_steer_half_noop_med` (`circuit_metrics.csv`, parsed from the `e_register` audit; their paired medians `register_vs_e0_med` / `register_steer_half_med` sit in `model_metrics.csv`, which only regenerates with the full STANDARD tier) | what the steering and transplant medians would be if the patch did nothing | median \|unpatched − model run at e = 0\|; median \|unpatched − model run at e/2\| (for an accurate model, the exact solution's own gaps) |
+| register | uses e at all | `register_e_norm`, `register_baseline_e_dep` (`circuit_metrics.csv`, parsed from the `e_register` audit) | whether the model writes and uses e, the precondition for grading a register (App D's dissolved cell and M50r unwrapped s2 fail it) | \|u_e\|·std(e), the attention write's e-term norm from the trig-library regression; e_dep of the unpatched surface on the register audit's grid |
 | register | read/write ownership | `register_read_write_cos` | the writer head follows the reader | cos(per-head e-read share vector, per-head e-write share vector) |
+| register | read/write ownership, family | `e_read_share_head1`, `e_write_share_head1` (+ stage stdout) | the same, across models | Pearson over the family's two-head models of head 1's e-read share vs its e-write share |
 | register | decode sufficiency | `decode_cubic/isotonic/full_write_rms` | does rank-1 carry the fine e-content | decode e from write·u_e per M-column (cubic / isotonic fit); reference = decode from full write |
 | anatomy | comb fraction | `comb_frac` | staircase vs smooth neuron tuning | power fraction of the tuning curve at digit-grid frequencies |
-| scaling | scaling fits | `scaling_fits.csv` | error vs params / steps | power-law fits over the family grid |
+| anatomy | damage vs contribution | `damage_contribution_pearson` | does the contribution score predict ablation damage | Pearson over live neurons of median error under single-neuron mean-ablation vs \|c\|·σ |
+| scaling | scaling fits | `scaling_fits.csv` | error vs params / steps | power-law fits over the seed-median cells of the scaling grid |
 
 ## Details
 
@@ -62,7 +73,7 @@ set {1, M, sinM, cosM, sin2M, cos2M, e, e·sinM, e·cosM, e·sin2M, M·e};
   Family: L 0.31/0.52/0.93, worst p_L 1.6e-4, openness 1.84/3.04/8.13,
   ramp_dev 0.001/0.034/0.11, excess 0/0.019/0.54 (four models past the 0.42
   circle calibration, all still open), |pc1_pearson| 0.62/0.97/1.00. The
-  basis-free three (L, ramp_dev, openness) certify; the PC-anchored two
+  basis-free three (L, ramp_dev, openness) test the family claim; the PC-anchored two
   (excess, pc1_*) measure deformation and are defeated by rotation.
 - **read depth (all three instruments)** — kernel `src/kernels/depth.py`;
   audits `_analysis/read_depth.txt`; table `tables/circuit_metrics.csv`; all
@@ -96,6 +107,10 @@ set {1, M, sinM, cosM, sin2M, cos2M, e, e·sinM, e·cosM, e·sin2M, M·e};
   0.84–0.93 band); |Pearson| 0.001/0.95/0.999, not tracking accuracy
   (Spearman −0.03, Pearson +0.17 against −log error) — linearity is not
   task-pinned; the output's dec_M is.
+- **read follows the line** — one 2×2 over the 210 family models, printed by
+  `repro/circuit_tables.py` from `model_metrics.csv` (`pc1_spearman`) ×
+  `circuit_metrics.csv` (`ov_sum_rho`): clean→monotone 90/98,
+  deformed→monotone 63/112, odds ratio 8.8, Fisher exact p 3e-9 (App F).
 - **dissoc** — 1 label/model; `tables/model_metrics.csv`; family counts
   single 28 / double 141 / distributed 41.
 - **output literal fit** — 4 values/model; kernel `src/kernels/fits.py`;
@@ -116,8 +131,15 @@ set {1, M, sinM, cosM, sin2M, cos2M, e, e·sinM, e·cosM, e·sin2M, M·e};
   tail (distributed median 0.126, double 0.032, single 0.079). Parity
   leakage ≈ 1 means noise-level. Share is a ratio — quote beside
   `mlp_factor` when corrections are weak.
+- **output spectrum (tail_energy, cos_energy)** — 2 values/model;
+  `_analysis/spectrum_n-harm_30.txt`; quoted for the primary (App H: sine
+  energy beyond n = 30 is 1.3e-4, cosine energy 3.8e-5 of the sine energy).
 - **mlp_factor** — 1 value/model; `tables/model_metrics.csv`; family
   29/376/9,420.
+- **legibility by width** — per-width median/min/max of `L`, `mlp_factor`,
+  `register_share` over the 6×6×5 scaling grid (30 models per width);
+  `repro/legibility_by_width.py` → `tables/legibility_by_width.csv` (the App I
+  legibility table).
 - **register metrics** — u_e = the raw-e term's direction from the vector
   regression of the layer-0 attention write on the library
   (`src/kernels/fits.py::vector_fit`). Audits `_analysis/e_register.txt`;
@@ -125,7 +147,10 @@ set {1, M, sinM, cosM, sin2M, cos2M, e, e·sinM, e·cosM, e·sin2M, M·e};
   0.72/0.94/1.00; |cos(u_e, w_eff)| 0.00/0.16/0.86 (> 0.5 only d4/short
   horizons); steer corr ≥ 0.999; vs-e0 corr is near-free — cite the median
   difference; read/write cos 0.08/0.998/1.00 (reversals at the d4
-  short-horizon corner).
+  short-horizon corner). Across models: head 1's e-read and e-write shares
+  (`tables/circuit_metrics.csv`, two-head models) correlate at Pearson
+  0.922 over the 205 family two-head models, printed by
+  `repro/circuit_tables.py`.
 - **decode sufficiency** — 3 values/model; `_analysis/register_decode.txt` +
   `tables/circuit_metrics.csv`; 220 of 240 (wrap models Skip). rms in e-units. Family
   isotonic/full-write ratio 0.00/0.95/93.5: typical models at the floor;
@@ -134,5 +159,12 @@ set {1, M, sinM, cosM, sin2M, cos2M, e, e·sinM, e·cosM, e·sin2M, M·e};
 - **comb_frac** — 1 value/neuron; neuron audits in `_analysis/`; quoted for
   the primary's corrector neuron n17 (0.751). Denominator-confounded across
   runs — compare within a model only.
+- **damage_contribution_pearson** — 1 value/model; `_analysis/frozen_ln.txt`;
+  DEEP tier, run on the primary (0.77, 11 live) and the five lnoff twins
+  (0.98–1.00, 14–21 live). Live neurons = contribution ≥ 1% of the max.
 - **scaling fits** — `tables/scaling_fits.csv`; computed by
-  `repro/scaling_fit.py` over the family grid.
+  `repro/scaling_fit.py` over the seed-median cells of the 6×6 scaling grid
+  (`repro/scaling_grid.py`; every fit drops d4, 30 cells; the CSV also
+  carries the interaction coefficient, its R² gain over the separable fit,
+  and the fitted floor per metric). The
+  MLP-factor law is fit on the five 800k cells above d4.

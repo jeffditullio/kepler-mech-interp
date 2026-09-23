@@ -2,7 +2,7 @@
 The e-register: locate and causally test the rank-1 residual-stream channel
 that carries eccentricity from attention to the MLP.
 
-Direct logit attribution (attribution.py / decompose.py) sees each write only
+The readout projection (attribution.py / decompose.py) sees each write only
 along w_eff and reports the attention write as pure-M. Vector-level, the write
 also carries a raw e ingredient in a direction the readout barely sees. This
 tool regresses the attention write A(M, e) on the trig library to get per-term
@@ -54,9 +54,13 @@ from src.core.data import (
 from src.core.runs import Bundle, build_model, predict_E
 from src.instrument.capture import head_writes, run_write_patched, w_eff
 from src.kernels.fits import fit, library, principal_share, vector_fit
-from src.kernels.metrics import e_M_dep
+from src.kernels.metrics import attention_e_sensitivity, e_M_dep
 
-DOSE_ALPHAS = (0.25, 0.5, 1.5, 2.0)  # 1.0 is the combined -e patch itself
+# Uniform 0.25 grid in register scale s = 1 - alpha over [-1, 1];
+# 1.0 is the combined -e patch itself and 0.0 the baseline.
+DOSE_ALPHAS = (0.25, 0.5, 0.75, 1.25, 1.5, 1.75, 2.0)
+# The unpatched model run at s*e, one per trained-domain dose (s = 1 is the baseline).
+COUNTERFACTUAL_SCALES = (0.75, 0.5, 0.25, 0.0)
 
 
 def register_directions(cfg, ck, device, layer=0):
@@ -98,11 +102,17 @@ def analyze(bundle: Bundle, layer: int = 0) -> Result | Skip:
     write_share      head -> share of the e-write (|u_e| norm)
     rank1_share      PC1 share of the write's e-variance
     cos_ue_weff      angle of the e-channel to the readout direction
+    cos_ue_wc        the same against the CENTERED readout w_eff - mean(w_eff), the direction the
+                     final LayerNorm actually applies
+    counterfactuals  s -> the same coefficient row for the UNPATCHED model run at s*e (the reference
+                     for a register that is e; fitted with the same design matrix in (M, e))
     patches          label -> {e*sinM, e*sin2M, M, e_dep, M_dep, med_err}
-    vs_e0_corr       transplant check: patched vs the model at e=0
-    vs_e0_med        median |patched - model-at-e=0| (rad) -- the cited zero-dose number
-    steer_half_corr  steering check: half-dose patch vs the model at e/2
-    steer_half_med   median |half-dose - model-at-e/2| (rad)
+    vs_e0_corr           transplant check: patched vs the model at e=0
+    vs_e0_med            median |patched - model-at-e=0| (rad) -- the cited zero-dose number
+    vs_e0_noop_med       do-nothing gap: median |unpatched - model-at-e=0| (rad)
+    steer_half_corr      steering check: half-dose patch vs the model at e/2
+    steer_half_med       median |half-dose - model-at-e/2| (rad)
+    steer_half_noop_med  do-nothing gap: median |unpatched - model-at-e/2| (rad)
     """
     cfg, ck, device = bundle.cfg, bundle.ck, bundle.device
     model, inputs, A_heads, A, U_heads, U, r2_vec, X, names, MM, EE = register_directions(cfg, ck, device, layer)
@@ -132,7 +142,7 @@ def analyze(bundle: Bundle, layer: int = 0) -> Result | Skip:
     layout = positions(cfg)
     attn_read, MM_read, _ = patterns(cfg, ck, device, layout["readout"])
     A_read = attn_read[layer]
-    e_sensitivity = A_read.reshape(*MM_read.shape, *A_read.shape[1:]).mean(axis=1).std(axis=0)
+    e_sensitivity = attention_e_sensitivity(A_read, *MM_read.shape)
     read_norms = e_sensitivity[:, layout["e"]].sum(axis=1)
     write_norms = np.array([np.linalg.norm(Uh[J_E]) * e_std for Uh in U_heads])
     read_share, write_share = read_norms / read_norms.sum(), write_norms / write_norms.sum()
@@ -148,10 +158,13 @@ def analyze(bundle: Bundle, layer: int = 0) -> Result | Skip:
     w = w_eff(model).cpu().numpy()
     u_M = U[names.index("M")]
     cos_ue_weff = abs(u_hat @ w) / np.linalg.norm(w)
+    w_c = w - w.mean()
+    cos_ue_wc = abs(u_hat @ w_c) / np.linalg.norm(w_c)
     out.append(
         f"  geometry: rank1_share {share[0]:.3f} (next {share[1]:.3f})  "
         f"cos_PC1_ue {abs(Vt[0] @ u_hat):.3f}  "
         f"cos_ue_weff {cos_ue_weff:.3f}  "
+        f"cos_ue_wc {cos_ue_wc:.3f}  "
         f"cos_ue_uM {abs(u_hat @ u_M) / np.linalg.norm(u_M):.3f}"
     )
     ln2_gain = model.blocks[layer].ln2.weight.detach().cpu().numpy()
@@ -206,20 +219,37 @@ def analyze(bundle: Bundle, layer: int = 0) -> Result | Skip:
         ),
     )
 
+    # counterfactual reference: the UNPATCHED model run at s*e for each dose,
+    # fitted with the same design matrix X in the original (M, e) coordinates.
+    # This is the reference for "the register is e"; the leading-order lines
+    # c_n(1) * s^n are not (the truth's sin(nM) coefficient is a Bessel curve
+    # in e, so the line fit's slope does not scale as s^n).
+    counterfactuals = {}
+    for s in COUNTERFACTUAL_SCALES:
+        counterfactuals[s] = row(
+            f"model@{s:.2f}e", counterfactual_e_output(cfg, model, device, MM.ravel(), EE.ravel() * s)
+        )
+
     # transplant check: patched(M, e) vs the unpatched model at e = 0
-    y_e0 = counterfactual_e_output(cfg, model, device, MM.ravel(), np.zeros(MM.size))
+    y_e0 = counterfactuals[0.0]
     diff = y_patched - y_e0
     vs_e0_corr = np.corrcoef(y_patched, y_e0)[0, 1]
+    # The do-nothing gap for each check is the unpatched model's own distance
+    # from its counterfactual: what med_diff would be if the patch did nothing.
+    vs_e0_noop_med = np.median(np.abs(baseline - y_e0))
     out.append(
         f"  vs_e0: corr {vs_e0_corr:.4f}  med_diff {np.median(np.abs(diff)):.2e}  max_diff {np.abs(diff).max():.2e}"
+        f"  do-nothing med_diff {vs_e0_noop_med:.2e}"
     )
     # steering check: the half-dose patch should equal the model told e/2
-    y_e_half = counterfactual_e_output(cfg, model, device, MM.ravel(), EE.ravel() / 2)
+    y_e_half = counterfactuals[0.5]
     sd = doses[0.5] - y_e_half
     steer_half_corr = np.corrcoef(doses[0.5], y_e_half)[0, 1]
+    steer_half_noop_med = np.median(np.abs(baseline - y_e_half))
     out.append(
         f"  steer_half: corr {steer_half_corr:.4f}  "
         f"med_diff {np.median(np.abs(sd)):.2e}  max_diff {np.abs(sd).max():.2e}"
+        f"  do-nothing med_diff {steer_half_noop_med:.2e}"
     )
 
     out.append(
@@ -244,11 +274,15 @@ def analyze(bundle: Bundle, layer: int = 0) -> Result | Skip:
         write_share={h: float(s) for h, s in enumerate(write_share)},
         rank1_share=float(share[0]),
         cos_ue_weff=float(cos_ue_weff),
+        cos_ue_wc=float(cos_ue_wc),
         patches=patches,
+        counterfactuals={s: patches[f"model@{s:.2f}e"] for s in COUNTERFACTUAL_SCALES},
         vs_e0_corr=float(vs_e0_corr),
         vs_e0_med=float(np.median(np.abs(diff))),
+        vs_e0_noop_med=float(vs_e0_noop_med),
         steer_half_corr=float(steer_half_corr),
         steer_half_med=float(np.median(np.abs(sd))),
+        steer_half_noop_med=float(steer_half_noop_med),
     )
 
 

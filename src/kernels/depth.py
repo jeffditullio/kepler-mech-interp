@@ -7,7 +7,7 @@ Depth = the length of the LEADING RUN of resolved places (reading stops at
 the first unresolved place; isolated deep survivors do not extend it).
 
 All three share the tail convention (deepest TAIL places = the unread
-reference) and the k = 5 resolvedness factor (the Fig. A2 "distinct"
+reference) and the k = 5 resolvedness factor (the Fig. A3 "distinct"
 criterion), but their noise structures differ, so each gets a matching rule:
 
   geometry     dist_p > k * tail_noise      tail_noise = mean tail distance
@@ -21,7 +21,7 @@ criterion), but their noise structures differ, so each gets a matching rule:
 import numpy as np
 
 TAIL = 6  # deepest places forming the unread reference
-K = 5.0  # resolvedness factor, shared with Fig A2's "distinct" labeling
+K = 5.0  # resolvedness factor, shared with Fig A3's "distinct" labeling
 MIN_CLUSTER_RANGE = 5.0  # geometry validity: below this dynamic range
 # (max place distance / tail noise) there is no ladder-plus-floor structure,
 # so a geometry depth would be "premise violated", not "resolves nothing".

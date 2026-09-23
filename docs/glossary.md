@@ -57,6 +57,11 @@ d{d_model}_l{n_layers}_h{n_heads}_{act}_{out}_{loss}_{steps}k_s{seed}
   `{out}` (the final LayerNorm's forward-order slot), and after `{steps}k` the
   wrap-study tokens `M50r`/`M10pi` (input range) then `Ewrap` (wrapped
   target). `final_ln` is not a designed axis; its token appears only when off.
+- **Control** is reserved for the in-family models that vary one axis of the
+  primary (the registry's `control` role: output map, ReLU, 4 heads, MAE).
+  The off-family runs are named for what they are, in prose and in the paper:
+  the **no-final-LayerNorm twin** (`lnoff`), the **2-layer model** (`l2`), and
+  the **wrap study** (`extM`). Never "off-family control".
 - `extM` = the registry role for extended-M-range models (any run with an
   `M50r`/`M10pi` token, i.e. `M_half_range` > π). Off-family; the wrap study's
   specimens.
@@ -95,6 +100,11 @@ Defined on first paper use, then used consistently everywhere:
   attention to the MLP (tool: `src/analysis/e_register.py`).
 - **`e_dep` / `M_dep`** — e-dependence / M-dependence metrics.
 - **`w_eff`** — effective readout direction = `head.weight ∘ ln_f.gain`.
+- **readout projection** — `w_eff · write`: a write's content along the readout
+  direction BEFORE the final LayerNorm's centering and per-input scale (Table 2's
+  rows). Not direct logit attribution, which keeps the cached scale from the
+  forward pass (`ln_exact_terms`; the decompose audit's exact block) and is
+  exact. With the final LayerNorm off the two coincide.
 - **bulk** (`e < 0.9`) / **cusp** (`e ≥ 0.9`) — the eccentricity regimes.
 - **readout position** — the ANS token, final position.
 - **read depth** — leading run of resolved places (k = 5 × the deepest-6-place

@@ -39,9 +39,9 @@ err = np.abs(R_model)
 print(f"{PRIMARY}: max={err.max():.3e}  mean={err.mean():.3e}  median={np.median(err):.3e}")
 
 panels = [
-    ("MODEL", R_model),
-    ("FB8", fourier_bessel(MM, EE, 8) - E_true),
-    ("Boyd7", boyd_grid(MM, EE, degree=7) - E_true),
+    ("Model (primary)", R_model),
+    ("Fourier–Bessel, order 8", fourier_bessel(MM, EE, 8) - E_true),
+    ("Boyd, degree 7", boyd_grid(MM, EE, degree=7) - E_true),
 ]
 
 bulk = EE < 0.9
@@ -49,7 +49,7 @@ for name, R in panels[1:]:
     ca = cos_sim(R_model.ravel(), R.ravel())
     cb = cos_sim(R_model[bulk], R[bulk])
     cc = cos_sim(R_model[~bulk], R[~bulk])
-    print(f"  cos(model, {name:<6}) all {ca:+.3f}  bulk {cb:+.3f}  cusp {cc:+.3f}")
+    print(f"  cos(model, {name}) all {ca:+.3f}  bulk {cb:+.3f}  cusp {cc:+.3f}")
 
 M_axis, e_axis = norm_axes(MM, EE, cfg.M_half_range)
 extent = [M_axis[0], M_axis[-1], e_axis[0], e_axis[-1]]
@@ -60,8 +60,8 @@ fig, axes = plt.subplots(1, len(panels), figsize=(9.5, 3.4))
 for ax, (name, R) in zip(axes, panels):
     v = np.nanpercentile(np.abs(R), CLIP_PCT) or 1.0
     ax.imshow(R, origin="lower", extent=extent, aspect="auto", cmap="RdBu_r", norm=mcolors.Normalize(-v, v))
-    ax.set_title(f"{name}  (±{v:.0e} @p{CLIP_PCT:g})")
-    ax.set_xlabel("M_norm = (M + π) / (2π)")
+    ax.set_title(f"{name}\n(±{v:.0e} at p{CLIP_PCT:g})")
+    ax.set_xlabel("normalized M = (M + π) / (2π)")
 axes[0].set_ylabel("e")
 for ax in axes[1:]:
     ax.tick_params(labelleft=False)

@@ -26,16 +26,16 @@ Fourier–Bessel (order),27,8.654e-09,3.693e-02
 Fourier–Bessel (order),28,5.146e-09,3.489e-02
 Fourier–Bessel (order),29,3.317e-09,3.296e-02
 Fourier–Bessel (order),30,1.899e-09,3.113e-02
-model width @800k,d4,5.920e-03,1.183e-01
-model width @800k,d8,1.854e-03,5.228e-02
-model width @800k,d16,7.761e-04,2.096e-02
-model width @800k,d32,3.109e-04,1.043e-02
-model width @800k,d64,2.049e-04,6.909e-03
-model width @800k,d128,1.503e-04,5.923e-03
+"model width, 800k steps",d4,5.920e-03,1.183e-01
+"model width, 800k steps",d8,1.854e-03,5.228e-02
+"model width, 800k steps",d16,7.761e-04,2.096e-02
+"model width, 800k steps",d32,3.109e-04,1.043e-02
+"model width, 800k steps",d64,2.049e-04,6.909e-03
+"model width, 800k steps",d128,1.503e-04,5.923e-03
 Boyd (degree),3,2.273e-02,2.647e-01
 Boyd (degree),5,1.538e-03,2.785e-02
 Boyd (degree),7,5.634e-05,1.230e-03
 Boyd (degree),9,1.322e-06,3.181e-05
 Fourier–Bessel (order),slope,,0.154
-model width @800k,slope,,0.841
+"model width, 800k steps",slope,,0.841
 Boyd (degree),slope,,0.930

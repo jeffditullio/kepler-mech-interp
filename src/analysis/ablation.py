@@ -16,7 +16,9 @@ attention head or a layer's MLP, then re-score over the (M,e) grid:
                 M-curve is, M_corr says whether it is still the true shape.
 
 Heads (default): sweeps each head of --layer (default layer 0) individually;
---kill 0,1 ablates those heads together. MLPs (--mlp): ablates each layer's MLP,
+--kill 0,1 ablates those heads together and --kill all ablates every head of the
+layer at once (in a one-layer model the output must go flat: the ANS embedding
+is constant, so all input dependence at the readout arrives through attention). MLPs (--mlp): ablates each layer's MLP,
 plus all layers together for a multi-layer model. Baseline + each condition is a
 controlled comparison. Expected for the input circuit: the e-reader head's
 ablation collapses e_dep specifically; the M-reader's collapses M_dep / overall
@@ -30,6 +32,7 @@ Cross-checks:
     uv run python -m src.analysis.ablation d8_l1_h2_gelu_lin_mse_800k_s0 --kill 0,1   # kill heads 0+1 together
 """
 
+import math
 import types
 
 from src.analysis._cli import Result, Skip, check_standard_task, run_tool
@@ -132,7 +135,12 @@ def analyze(
             conditions=conditions,
         )
 
-    conds = [[int(x) for x in kill.split(",")]] if kill else None
+    if kill == "all":
+        conds = [list(range(cfg.n_heads))]
+    elif kill:
+        conds = [[int(x) for x in kill.split(",")]]
+    else:
+        conds = None
     baseline, results = head_ablation_sweep(model, cfg, device, E_true, layer=layer, mean=mean, conditions=conds)
     med, ed, md, ec, mc = baseline
     out.append(f"{bundle.run_name}  {kind}-ablating layer{layer} heads")
@@ -141,11 +149,16 @@ def analyze(
     for kill_heads, m in results:
         med, ed, md, ec, mc = m
         lbl = "-head" + ",".join(map(str, kill_heads))
-        out.append(f"  {lbl:9s}  {med:.3e}    {ed:.4f}    {md:.4f}    {ec:+.3f}    {mc:+.3f}")
+        out.append(f"  {lbl:9s}  {med:.3e}    {ed:.4f}    {md:.4f}    {_corr_str(ec)}    {_corr_str(mc)}")
         conditions[lbl] = _metrics_dict(m)
     return Result(
         "\n".join(out), kind=kind, target="heads", layer=layer, baseline=_metrics_dict(baseline), conditions=conditions
     )
+
+
+def _corr_str(value: float) -> str:
+    """A correlation column entry; a constant output has no correlation and prints as flat."""
+    return " flat " if math.isnan(value) else f"{value:+.3f}"
 
 
 def classify_dissociation(result: Result) -> str:
@@ -189,7 +202,7 @@ def _flags(p) -> None:
         "--kill",
         type=str,
         default=None,
-        help="comma-separated heads to ablate together (e.g. 0,1); default sweeps each head individually",
+        help="comma-separated heads to ablate together (e.g. 0,1), or 'all'; default sweeps each head individually",
     )
 
 

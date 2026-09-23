@@ -8,7 +8,7 @@ per snapshot, three numbers --
            forming circle: can rise while med plateaus
   phaseR2  contribution-weighted neuron phase-periodicity
 
-The wrap appendix's trajectory exhibit: circle precursors that rise (or stall)
+The wrap appendix's trajectory exhibit: circle gain at the predicted frequencies, snapshot by snapshot,
 before any behavioral drop. Requires snapshot_every > 0 at training time.
 
 Usage:

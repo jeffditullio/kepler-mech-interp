@@ -17,7 +17,7 @@ claims to find it.
 
 The models read `M` (mean anomaly) and `e` (eccentricity) as 12-digit
 strings and predict `E` (eccentric anomaly). They span 1–2 layers, d_model 4
-to 128 (~1K to ~1M params), varying width, heads, MLP activation, output
+to 128 (385 to 203K params), varying width, heads, MLP activation, output
 map, loss, training horizon, and seed. `d8_l1_h2_gelu_lin_mse_800k_s0` is
 the primary specimen; `papers/ditullio-e-register/model_registry.py` is the source of truth (run
 it to print the census). Weights are committed because MPS training is not
@@ -73,7 +73,7 @@ papers/ditullio-e-register/                  # the paper bundle — one consumer
   model_registry.py      #   the model space: every run name, axis, and named set
   reproduce_analysis.py  #   registry × runner → models/*/_analysis/, figures/, tables/
   models/                #   the 240 committed checkpoints
-  paper/                 #   claims.md (claim → tool → figure) · metrics.md
+  paper/                 #   metrics.md (every paper metric: definition, math, storage)
 ```
 
 Every `src.analysis` and `src.training` module is a self-contained CLI:
@@ -81,11 +81,11 @@ Every `src.analysis` and `src.training` module is a self-contained CLI:
 
 ## The paper
 
-**Small Transformers Learn Kepler's Equation with a Stubborn Number Line
+**Small Transformers Learn Kepler's Equation with a Number Line
 and an Eccentricity Register** (Jeff DiTullio, 2026) — manuscript
-forthcoming (arXiv, September 2026). The circuit-level account of what
+under review; the arXiv version will be linked here. The circuit-level account of what
 these models learn; every claim maps to a tool and a
-committed table ([`papers/ditullio-e-register/paper/claims.md`](./papers/ditullio-e-register/paper/claims.md)). See
+committed table under `papers/ditullio-e-register/tables/`. See
 [`papers/ditullio-e-register/README.md`](./papers/ditullio-e-register/README.md) for that bundle's map.
 
 ## License

@@ -90,6 +90,10 @@ def analyze(bundle: Bundle, n_M: int = 512, n_e: int = 200, n_harm: int = 10) ->
     tail = (b[:, nh + 1 :] ** 2).sum()
     tail_energy = float(tail / (tot + 1e-12))
     out.append(f"  energy beyond n={nh}: {tail_energy:.3e} of sine energy")
+    # Output cosine energy as one total (the per-harmonic column above is a
+    # ratio of maxima): cos(nM) energy over sin(nM) energy, all n >= 1.
+    cos_energy = float((a[:, 1:] ** 2).sum() / (tot + 1e-12))
+    out.append(f"  cosine energy: {cos_energy:.1e} of sine energy (all n; odd-in-M truth => ~0)")
 
     # Parity of the ERROR field. Output cosine energy ~0 is forced by accuracy
     # (the truth carries no cosines); the non-forced question is whether the
@@ -133,6 +137,7 @@ def analyze(bundle: Bundle, n_M: int = 512, n_e: int = 200, n_harm: int = 10) ->
         rms_dev=rms_dev,
         cos_ratio=cos_ratios,
         tail_energy=tail_energy,
+        cos_energy=cos_energy,
         parity_ratio=parity_ratio,
     )
 

@@ -16,5 +16,3 @@ papers/*/models/*/_analysis/
 # Regenerable outputs
 _reports/
 papers/*/*.log
-# PDF build intermediate — edit draft.md, never this
-papers/*/paper/draft.typ

@@ -13,6 +13,12 @@ the ANS token (so its logit contribution is the additive sum  z += sum_i c_i*h_i
 Rank neurons by contribution = |c_i| * std(h_i over grid) -- |c_i| alone
 overrates neurons that barely fire or fire flat. Plot the top 16 heatmaps.
 
+--bessel runs the single-Bessel-term test (kernels.harmonics.bessel_term_test)
+per live neuron and prints the table the paper's App. G quotes: onset slope of
+dominant-harmonic amplitude against e (a single term has slope n) and the
+std share at e = 0 (a single term has 0). The audit is the DEEP-tier
+neuron_tuning_bessel.txt.
+
 Read the SHAPES: global waves spanning the plane => spectral/Boyd-like basis;
 local blobs => piecewise interpolation.
 
@@ -27,10 +33,11 @@ import numpy as np
 
 from src.analysis._cli import Result, Skip, run_tool, step_suffix
 from src.analysis._plot import grid_extent
+from src.analysis.comb_ablation import LIVE_FRACTION_OF_MAX
 from src.core.data import make_eval_grid, make_eval_inputs
 from src.core.runs import Bundle, build_model
 from src.instrument.capture import neuron_acts, neuron_readout_coefs
-from src.kernels.harmonics import bessel_coeff
+from src.kernels.harmonics import ONSET_FIT_WINDOW, bessel_coeff, bessel_term_test
 
 # FFT frame note: the raw np.fft.rfft spectra below are referenced to the grid
 # start M0=-pi, NOT the true-M frame (that correction is (-1)^n; see
@@ -146,32 +153,53 @@ def fft_plot(acts, c, MM, EE, title, out_path, top_k=16):
     return lines, [int(k) for k in top5]
 
 
-def bessel_plot(acts, c, MM, EE, title, out_path, top_k=12):
-    """For each top neuron, amplitude of its dominant M-harmonic vs e, compared
-    to the Fourier-Bessel coefficient (2/n)J_n(ne). Signatures of the classical
-    series: full-shape match (corr) AND onset A_n(e) ~ e^n near e=0."""
+def bessel_table(acts, c, MM, EE):
+    """The single-Bessel-term test (kernels.harmonics.bessel_term_test) per live
+    neuron (contribution >= LIVE_FRACTION_OF_MAX of the largest), by
+    contribution. Returns (lines, {neuron: (n, A, onset_slope, e0_std_share)},
+    max onset slope, min e=0 std share). The onset slope is the test: an
+    amplitude with a large offset correlates at |1| with any monotone
+    coefficient, so shape correlation says nothing."""
     n_e, n_M = MM.shape
     e_axis = EE[:, 0]
-    sigma = acts.std(axis=0)
-    order = np.argsort(np.abs(c) * sigma)[::-1][:top_k]
+    contribution = np.abs(c) * acts.std(axis=0)
+    live = np.where(contribution >= LIVE_FRACTION_OF_MAX * contribution.max())[0]
+    order = live[np.argsort(contribution[live])[::-1]]
+    lo, hi = ONSET_FIT_WINDOW
+    lines = [
+        f"single-Bessel-term test per live neuron ({len(live)} of {len(c)}; e_min {e_axis[0]:.3f};"
+        f" onset slope fit on e in ({lo}, {hi}))",
+        "  neuron  contribution  harmonic  onset_slope  e0_std_share",
+    ]
+    tests = {}
+    for idx in order:
+        n, A, slope, share = bessel_term_test(acts[:, idx].reshape(n_e, n_M), e_axis)
+        tests[int(idx)] = (n, A, slope, share)
+        lines.append(f"  n{idx:<5} {contribution[idx]:12.4f} {n:9d} {slope:12.2f} {share:13.2f}")
+    slopes = [t[2] for t in tests.values()]
+    shares = [t[3] for t in tests.values()]
+    lines.append(
+        f"  onset slope max {np.nanmax(slopes):.2f} (a single Bessel term has slope = harmonic);"
+        f" e0 std share min {min(shares):.2f} (a single Bessel term has 0)"
+    )
+    return lines, tests, float(np.nanmax(slopes)), float(min(shares))
+
+
+def bessel_plot(acts, c, MM, EE, title, out_path, max_panels=12):
+    """For the live neurons (up to max_panels, by contribution), amplitude of
+    the dominant M-harmonic vs e against the Fourier-Bessel coefficient
+    (2/n)J_n(ne); titles carry the onset slope."""
+    e_axis = EE[:, 0]
+    lines, tests, onset_slope_max, e0_std_share_min = bessel_table(acts, c, MM, EE)
 
     fig, axes = plt.subplots(3, 4, figsize=(16, 11))
-    onset_mask = (e_axis > 0.05) & (e_axis < 0.40)
-    for ax, idx in zip(axes.flat, order):
-        surf = acts[:, idx].reshape(n_e, n_M)
-        F = np.fft.rfft(surf, axis=1)[:, 1:]  # (n_e, n_M//2)
-        n = int(np.abs(F).mean(axis=0).argmax()) + 1  # dominant harmonic
-        A = np.abs(F[:, n - 1])  # amplitude vs e
+    for ax, (idx, (n, A, slope, _)) in zip(axes.flat, list(tests.items())[:max_panels]):
         bessel = np.abs(bessel_coeff(n, e_axis))
-
         An, Bn = A / A.max(), bessel / bessel.max()
-        corr = np.corrcoef(A, bessel)[0, 1]
-        m = onset_mask & (A.max() * 0.02 < A)
-        slope = np.polyfit(np.log(e_axis[m]), np.log(A[m]), 1)[0] if m.sum() > 3 else np.nan
 
         ax.plot(e_axis, An, color="C0", lw=1.3, label="neuron A(e)")
         ax.plot(e_axis, Bn, color="C3", ls="--", lw=1.2, label=f"(2/{n})·J_{n}({n}e)")
-        ax.set_title(f"n{idx}  harmonic={n}  corr={corr:.2f}  onset~e^{slope:.1f} (ideal {n})", fontsize=8)
+        ax.set_title(f"n{idx}  harmonic={n}  onset~e^{slope:.1f} (ideal {n})", fontsize=8)
         ax.set_xlabel("e", fontsize=7)
         ax.tick_params(labelsize=6)
         ax.legend(fontsize=6)
@@ -184,7 +212,7 @@ def bessel_plot(acts, c, MM, EE, title, out_path, top_k=12):
     fig.tight_layout()
     fig.savefig(out_path, dpi=110)
     plt.close(fig)
-    return [f"wrote {out_path}"]
+    return [f"wrote {out_path}", *lines], onset_slope_max, e0_std_share_min
 
 
 def phase_plot(acts, c, MM, EE, title, out_path, top_k=12):
@@ -240,6 +268,10 @@ def analyze(
     d_mlp
     contributions  (d_mlp,) |c_i| * std(h_i), the ranking metric
     top_harmonics  fft mode only: aggregate-spectrum top-5 harmonics
+    onset_slope_max    bessel mode only: max over live neurons of the onset slope
+                       of dominant-harmonic amplitude against e (a Bessel term: n)
+    e0_std_share_min   bessel mode only: min over live neurons of std over M at
+                       the smallest e as a share of overall std (a Bessel term: 0)
     """
     cfg, ck, device = bundle.cfg, bundle.ck, bundle.device
     acts, c, MM, EE = capture(cfg, ck, device)
@@ -247,7 +279,7 @@ def analyze(
 
     step_sfx = step_suffix(bundle.step)
     ttl = f"{bundle.run_name} (step {ck.get('step', '?')})  d_mlp={len(c)}"
-    top_harmonics = None
+    top_harmonics = onset_slope_max = e0_std_share_min = None
     if phase:
         mode = "phase"
         out_path = bundle.ckpt_path.with_name(f"neuron_tuning_phase{step_sfx}.png")
@@ -255,7 +287,7 @@ def analyze(
     elif bessel:
         mode = "bessel"
         out_path = bundle.ckpt_path.with_name(f"neuron_tuning_bessel{step_sfx}.png")
-        out = bessel_plot(acts, c, MM, EE, ttl, out_path)
+        out, onset_slope_max, e0_std_share_min = bessel_plot(acts, c, MM, EE, ttl, out_path)
     elif fft:
         mode = "fft"
         out_path = bundle.ckpt_path.with_name(f"neuron_tuning_fft{step_sfx}.png")
@@ -271,6 +303,8 @@ def analyze(
         d_mlp=len(c),
         contributions=contributions,
         top_harmonics=top_harmonics,
+        onset_slope_max=onset_slope_max,
+        e0_std_share_min=e0_std_share_min,
     )
 
 

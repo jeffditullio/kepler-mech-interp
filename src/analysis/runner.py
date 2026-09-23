@@ -72,10 +72,17 @@ STANDARD = [
 ]
 DEEP = [
     ToolSpec("register_decode"),
+    # every head mean-ablated at once: the output must go flat (Sec. 4.4 quotes the primary)
+    ToolSpec("ablation", {"mean": True, "kill": "all"}, "ablation_mean_allheads.txt"),
+    # single-Bessel-term test per live neuron (App. G quotes the primary only)
+    ToolSpec("neuron_tuning", {"bessel": True}, "neuron_tuning_bessel.txt"),
     ToolSpec("das_register"),
     ToolSpec("comb_depth"),
     ToolSpec("comb_ablation"),
     ToolSpec("frozen_ln"),
+    # residual-shape test over the full Boyd ladder (slow per-point root find);
+    # STANDARD runs degree 7 only. App. H cites degrees 3-9 on the primary.
+    ToolSpec("error_pattern", {"boyd_degs": "3,5,7,9"}, "error_pattern_boyd-degs_3-5-7-9.txt"),
 ]
 TIERS = {"standard": STANDARD, "all": STANDARD + DEEP}
 

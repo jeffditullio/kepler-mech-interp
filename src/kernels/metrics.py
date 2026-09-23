@@ -47,6 +47,15 @@ def e_M_dep(g) -> tuple[float, float]:
     return e_dep, M_dep
 
 
+def attention_e_sensitivity(A, n_e: int, n_M: int) -> np.ndarray:
+    """A: (n_e * n_M, n_heads, L) attention from one query position over the
+    eval grid, in grid order (e outer, M inner). Returns (n_heads, L): the std
+    over e of the M-averaged attention to each key position -- how much each
+    head's read of that position moves with e (the Fig. 4b "e-sensitivity")."""
+    grid = A.reshape(n_e, n_M, *A.shape[1:])
+    return grid.mean(axis=1).std(axis=0)
+
+
 def prediction_metrics(E_pred, E_true) -> tuple[float, float, float, float, float]:
     """Score a flat prediction (n_e*n_M,) against the (n_e, n_M) truth grid:
     median_err -- overall accuracy

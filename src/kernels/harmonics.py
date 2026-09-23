@@ -35,6 +35,31 @@ def bessel_coeff(n, e):
     return (2.0 / n) * jv(n, n * e)
 
 
+ONSET_FIT_WINDOW = (0.05, 0.40)  # e-range for the log-log onset slope
+
+
+def bessel_term_test(surface, e_axis):
+    """Does one neuron encode a single Fourier-Bessel term? surface is its
+    activation over the (e, M) grid, e_axis the grid's e values (ascending).
+    Returns (n, A, onset_slope, e0_std_share):
+      n             dominant M-harmonic (mean |rfft| over e-rows)
+      A             (n_e,) amplitude of that harmonic against e
+      onset_slope   slope of log A against log e on ONSET_FIT_WINDOW, over
+                    points with A above 2% of its max; a single term (2/n) J_n(ne)
+                    has slope n near e = 0
+      e0_std_share  std over M at the smallest e as a share of the std over the
+                    whole grid; a single term has 0 at e = 0
+    Frame-invariant (magnitudes only), so the raw rfft frame is fine."""
+    F = np.fft.rfft(surface, axis=1)[:, 1:]
+    n = int(np.abs(F).mean(axis=0).argmax()) + 1
+    A = np.abs(F[:, n - 1])
+    lo, hi = ONSET_FIT_WINDOW
+    m = (e_axis > lo) & (e_axis < hi) & (A.max() * 0.02 < A)
+    onset_slope = float(np.polyfit(np.log(e_axis[m]), np.log(A[m]), 1)[0]) if m.sum() > 3 else np.nan
+    e0_std_share = float(surface[0].std() / surface.std())
+    return n, A, onset_slope, e0_std_share
+
+
 def _comb_bins(field, base):
     """M-FFT power spectrum (k=0 excluded, averaged over e-rows) and the mask
     of harmonics that are multiples of `base`. field: (n_e, n_M) over a

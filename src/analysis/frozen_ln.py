@@ -3,7 +3,7 @@ Frozen-LN decomposition of single-neuron mean-ablation damage (claims Rows
 10/17).
 
 The final LayerNorm's per-input normalization response (mu, sigma) is itself
-a path from a neuron to the output, and the w_eff DLA fold ignores it. This
+a path from a neuron to the output, and the w_eff readout projection ignores it. This
 tool repeats each live neuron's mean-ablation two ways:
 
   live LN   : normal forward -- the damage the paper quotes
@@ -58,6 +58,8 @@ def analyze(bundle: Bundle) -> Result | Skip:
     dead_control
     comb_neuron             top-contribution comb neuron (None if no comb family)
     comb_frac               baseline / ablated_live / ablated_frozen bulk comb fractions
+    damage_contribution_pearson  Pearson over the live neurons of live-LN median
+                            damage vs the |c|*sigma contribution score
     """
     cfg, ck, device = bundle.cfg, bundle.ck, bundle.device
     if skip := check_standard_task(cfg):
@@ -161,6 +163,10 @@ def analyze(bundle: Bundle) -> Result | Skip:
             "median_frozen": None if m_frozen is None else float(m_frozen),
             "ratio": None if m_frozen is None else float(m_frozen / m_live),
         }
+    live_rows = [r for r in rows if r[0] != dead_control]
+    damage_contribution_pearson = float(
+        np.corrcoef([contribution[i] for i, _, _ in live_rows], [m for _, m, _ in live_rows])[0, 1]
+    )
     for i, m_live, m_frozen in sorted(rows, key=lambda t: t[1], reverse=True):
         tag = "  <- dead/no-op control" if i == dead_control else ""
         if has_ln:
@@ -168,6 +174,11 @@ def analyze(bundle: Bundle) -> Result | Skip:
             out.append(f"{row}         {m_frozen / m_live:.3f}{tag}")
         else:
             out.append(f"  n{i:<3d}  {contribution[i]:.5f}   {m_live:.3e}{tag}")
+
+    out.append(
+        f"\n  Pearson(live-LN damage, contribution) over the {len(live_rows)} live neurons: "
+        f"{damage_contribution_pearson:.3f}"
+    )
 
     # the top comb neuron's comb signature under both modes
     comb_stats = {}
@@ -197,6 +208,7 @@ def analyze(bundle: Bundle) -> Result | Skip:
         dead_control=dead_control,
         comb_neuron=comb_neuron,
         comb_frac={k: float(v) for k, v in comb_stats.items()},
+        damage_contribution_pearson=damage_contribution_pearson,
     )
 
 

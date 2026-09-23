@@ -47,8 +47,8 @@ class Config:
     # operating point toward minimax) along the L1 -> L2 -> Linf axis.
     loss: str = "mae"
     # Final LayerNorm before the head. False = Identity: the logit is exactly
-    # linear in the residual stream, so w_eff / DLA are exact (no fold
-    # approximation) and the LN normalization channel (src/analysis/frozen_ln.py) is absent.
+    # linear in the residual stream, so the w_eff readout projection IS direct logit
+    # attribution (no fold approximation) and the LN normalization channel (src/analysis/frozen_ln.py) is absent.
     # All family models use True; the lnoff off-family models use False.
     final_ln: bool = True
 

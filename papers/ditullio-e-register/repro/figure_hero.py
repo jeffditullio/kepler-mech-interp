@@ -167,8 +167,8 @@ def dial_panel(ax):
         i = int(np.argmin(np.abs(M_axis - M_target)))
         return float(M_axis[i]), float((curves[key_dotted][i] + curves[key_solid][i]) / 2)
 
-    # the verdict, stated on-plot. Both "lands on" labels point into M < 0,
-    # where the patched curves sit on their targets; the gap bracket owns
+    # the verdict, stated on-plot. Both "tracks" labels point into M < 0,
+    # where the patched curves sit closest to their targets; the gap bracket owns
     # M > 0 (the residual is folded there by parity — App. G). Leaders are
     # hand-annotation S-curves (cubic Beziers; the named connection styles
     # only give circular arcs)
@@ -181,11 +181,11 @@ def dial_panel(ax):
     # The blue leader crosses the black curve once: the blue pair is interior
     # to the bundle, so no crossing-free approach to it exists
     bx, by = pair_anchor(-1.15, "half", "e_half")
-    ax.text(0.55, -2.35, "half scale lands on\nthe e = 0.45 curve", ha="center", va="top", fontsize=8.5, color=M_BLUE)
+    ax.text(0.55, -2.35, "half scale tracks\nthe e = 0.45 curve", ha="center", va="top", fontsize=8.5, color=M_BLUE)
     s_leader((0.55, -2.27), (0.55, -1.85), (bx, by - 0.5), (bx, by - 0.06))
 
     ox, oy = pair_anchor(-1.7, "full", "e0")
-    ax.text(-2.95, 0.9, "zero scale lands on\nthe e = 0 curve", ha="left", va="top", fontsize=8.5, color=E_ORANGE)
+    ax.text(-2.95, 0.9, "zero scale tracks\nthe e = 0 curve", ha="left", va="top", fontsize=8.5, color=E_ORANGE)
     s_leader((-2.15, 0.4), (-2.15, -0.4), (ox - 0.02, -0.55), (ox - 0.02, oy + 0.05))
 
     # the honest residual, shown as a DISTANCE: a bracket spans the zero-scale

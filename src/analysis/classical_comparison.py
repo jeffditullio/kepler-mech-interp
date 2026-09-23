@@ -129,10 +129,19 @@ def analyze(bundle: Bundle) -> Result | Skip:
     coef, *_ = np.linalg.lstsq(X, z - z.mean(), rcond=None)
     z_hat = z.mean() + X @ coef
     r2 = 1 - ((z - z_hat) ** 2).sum() / ((z - z.mean()) ** 2).sum()
+    # A high R^2 on a wide logit is not a small residual: report the logit's
+    # std and the fit's RMSE in logit units next to it. The output map
+    # E = 2R*sigmoid(z) - R has derivative at most R/2, so it cannot blow the
+    # residual up; it is the residual itself that is large.
+    logit_std = float(z.std())
+    logit_rmse = float(np.sqrt(np.mean((z - z_hat) ** 2)))
     E_recon = denormalize_angle(1.0 / (1.0 + np.exp(-z_hat)), output_half_range(cfg))
     capstone_err = errs(E_recon, Et, e)
     md, mx, mb = capstone_err
-    out.append(f"  sigmoid(trigfit) {md:.3e}    {mx:.3e}   {mb:.3e}   (logit fit R^2={r2:.3f})")
+    out.append(
+        f"  sigmoid(trigfit) {md:.3e}    {mx:.3e}   {mb:.3e}   (logit fit R^2={r2:.3f};"
+        f" logit std {logit_std:.2f}, fit RMSE {logit_rmse:.3f} logit units)"
+    )
     return Result(
         "\n".join(out),
         model_err=model_err,
@@ -142,6 +151,8 @@ def analyze(bundle: Bundle) -> Result | Skip:
         sigmoid_err=sigmoid_err,
         capstone_err=capstone_err,
         capstone_r2=float(r2),
+        capstone_logit_std=logit_std,
+        capstone_logit_rmse=logit_rmse,
     )
 
 

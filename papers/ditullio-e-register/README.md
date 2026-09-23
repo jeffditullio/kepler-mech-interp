@@ -1,6 +1,6 @@
 # papers/ditullio-e-register — Reverse-engineering a transformer that solves Kepler's equation
 
-Self-contained bundle for paper #1: **exactly** what the paper rests on, nothing
+Self-contained bundle for the paper: **exactly** what the paper rests on, nothing
 more. Designed so every committed line is paper-relevant and reviewable.
 
 ## What's here
@@ -15,12 +15,15 @@ papers/ditullio-e-register/
   reproduce_analysis.py        the ONE reproduce command: orders the stages, fails loudly
                   (its docstring = stage details)
   repro/          the stages, each standalone-runnable: model_analysis ->
-                  scaling_fit -> checks -> figure_* -> build_pdf
+                  scaling_fit -> checks -> figure_*
   figures/        composed paper figures (PNG)                 [regenerated]
   tables/         model_metrics.csv (one row per model, family column, every
-                  scalar) + scaling_fits.csv (fitted exponents ± SEs)
-  paper/          claims.md (the ledger) + metrics.md; manuscript lands
-                  with arXiv v1
+                  scalar) · circuit_metrics.csv (per-model circuit reads) ·
+                  scaling_fits.csv (fitted exponents ± SEs) · classical_ladder,
+                  legibility_by_width, position_geometry, weighted_ov (cross-model
+                  tables, each written by its repro stage)
+  paper/          metrics.md (every paper metric: definition, math,
+                  storage); manuscript lands with arXiv v1
   models/         canonical store, COMMITTED: per model {config.json,
                   run_meta.json, metrics.csv, final.pt}. The gitignored
                   _analysis/<tool>.{txt,png} subdirs regenerate from the
@@ -51,18 +54,19 @@ uv run python papers/ditullio-e-register/reproduce_analysis.py   # hours -> mode
 Weights ARE committed and canonical: MPS training is not bit-reproducible, so
 retraining (`caffeinate -is uv run python papers/ditullio-e-register/train_all.py`, days,
 resume-safe) yields a FRESH family, not the committed one. Analysis from the
-committed weights is byte-identical. PDF build is opt-in:
-`reproduce_analysis.py --pdf`, or `uv run python papers/ditullio-e-register/repro/build_pdf.py`.
+committed weights is byte-identical.
 
 ## Pipeline (reproduce_analysis.py stages)
-1. **standard** — the runner's STANDARD tier (20 tools,
+1. **standard** — the runner's STANDARD tier (22 tools,
    `src/analysis/runner.py`) on every model, in-process; tools self-skip with
    an auditable `SKIPPED: <reason>` where they don't apply. Writes each
    model's audit pages + figures into `models/<model>/_analysis/` and
    assembles its `model_metrics.csv` row from the same Results it freezes.
    Incremental rerun for named models: `reproduce_analysis.py --models "<glob>"`.
-2. **deep_dive** — the runner's DEEP tier (the per-neuron sweeps
-   comb_ablation, frozen_ln, comb_depth, register_decode, das_register) on the
+2. **deep_dive** — the runner's DEEP tier (8 tools: the per-neuron sweeps
+   comb_ablation, frozen_ln, comb_depth, register_decode, the DAS cross-check
+   das_register, the all-heads ablation, Bessel neuron tuning, the Boyd
+   degree ladder) on the
    cherry-picked models in `repro/model_analysis.py DEEP_PICKS` — the models
    whose deep numbers the paper cites. Feeds no metrics column.
 3. **tables** — `tables/model_metrics.csv` (240 rows).
@@ -75,8 +79,8 @@ committed weights is byte-identical. PDF build is opt-in:
 6. **figures** — the composed paper figures from the tables + audits.
 
 ## Claim set
-The authoritative claim ledger is `paper/claims.md`: one block per claim
-(Claim · Holds · Fails · Metrics · Source · Guard, paper home in the header).
+Every paper claim maps to a tool, a committed table, and a figure; the
+claim ledger lands with the arXiv version.
 Numbers-truth lives in `tables/`; `checks.py` enforces it.
 
 ## Specimen

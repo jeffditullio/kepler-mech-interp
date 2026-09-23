@@ -121,7 +121,7 @@ def _poly_ladder(proj: np.ndarray, var: np.ndarray, n_pcs: int = 4) -> str:
         top = int(np.argmax(r2))
         lines.append(
             f"  PC{k + 1} (var {var[k]:.2f}): {names[top]} r^2={r2[top]:.2f}"
-            f"  [" + " ".join(f"{names[i]}{r2[i]:.2f}" for i in range(min(5, len(r2)))) + "]"
+            f"  [" + " ".join(f"{names[i]}{r2[i]:.3f}" for i in range(min(5, len(r2)))) + "]"
         )
     return "\n".join(lines)
 

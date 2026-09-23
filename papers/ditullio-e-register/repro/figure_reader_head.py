@@ -18,6 +18,7 @@ from src.analysis.readout_attention import patterns
 from src.core.data import positions
 from src.core.runs import build_model, load_checkpoint, pick_device
 from src.instrument.capture import transfer_curve
+from src.kernels.metrics import attention_e_sensitivity
 
 PRIMARY = "d8_l1_h2_gelu_lin_mse_800k_s0"
 
@@ -31,13 +32,13 @@ A = attn[0]  # (N, nh, L)
 n_e, n_M = MM.shape
 nh, L = A.shape[1], A.shape[2]
 mean = A.mean(axis=0)  # (nh, L)
-e_sens = A.reshape(n_e, n_M, nh, L).mean(axis=1).std(axis=0)  # (nh, L)
+e_sens = attention_e_sensitivity(A, n_e, n_M)  # (nh, L)
 
 model = build_model(cfg, ck, "cpu")  # OV is a weights-only read
 
-# Rendered at 5.5in text width in the paper; native 15in + 13pt fonts stay legible.
-plt.rcParams.update({"font.size": 13, "axes.titlesize": 13})
-fig, axes = plt.subplots(1, 3, figsize=(15, 3.4))
+# Prints at 5.5in text width. Drawn at ~7.2in native so 8pt here prints at ~6pt.
+plt.rcParams.update({"font.size": 8, "axes.titlesize": 9})
+fig, axes = plt.subplots(1, 3, figsize=(7.2, 2.0))
 
 # --- (a,b): QK attention profiles ---
 bounds = (d - 0.5, 2 * d - 0.5)  # M | e | ANS
@@ -56,8 +57,8 @@ for ax, dd, title, ylabel, yscale in qk_panels:
                 range(f.start, f.stop),
                 dd[h, f],
                 marker="o",
-                markersize=4,
-                lw=1.8,
+                markersize=2.5,
+                lw=1.2,
                 color=color,
                 label=f"head {h}" if color is None else None,
             )
@@ -71,17 +72,17 @@ for ax, dd, title, ylabel, yscale in qk_panels:
         ax.yaxis.set_major_formatter(plain)
         ax.yaxis.set_minor_formatter(plain)
     for b in bounds:
-        ax.axvline(b, color="gray", ls="--", lw=1.2)
+        ax.axvline(b, color="gray", ls="--", lw=0.9)
     ax.set_title(title)
-    ax.set_xlabel("key position", fontsize=11)
-    ax.set_ylabel(ylabel, fontsize=11)
+    ax.set_xlabel("key position")
+    ax.set_ylabel(ylabel)
     ax.set_xlim(-0.5, L - 0.5)
     ax.grid(axis="y", alpha=0.3)
     # field-group labels under the axis (minor ticks: labels only, no marks)
     ax.set_xticks([(d - 1) / 2, (3 * d - 1) / 2, 2 * d], minor=True)
-    ax.set_xticklabels(["M digits", "e digits", "ANS"], minor=True, fontsize=10, style="italic")
-    ax.tick_params(axis="x", which="minor", length=0, pad=18)
-axes[0].legend(fontsize=10)
+    ax.set_xticklabels(["M digits", "e digits", "ANS"], minor=True, fontsize=7.5, style="italic")
+    ax.tick_params(axis="x", which="minor", length=0, pad=11)
+axes[0].legend(fontsize=7.5)
 
 # --- (c): each head's OV transfer curve (linear read: source position only
 # offsets the curve, so one curve per head) ---
@@ -90,10 +91,10 @@ spans = []
 for h, color in ((0, "C0"), (1, "C1")):
     curve = transfer_curve(model, 0, h)
     span = float(curve.max() - curve.min())
-    ax.plot(range(10), curve, "-", marker="o", markersize=4, lw=1.8, color=color, label=f"head {h}")
+    ax.plot(range(10), curve, "-", marker="o", markersize=2.5, lw=1.2, color=color, label=f"head {h}")
     spans.append(span)
     print(f"head{h} OV span {span:.3f}")
-ax.set_title("(c) OV: digit value → logit", pad=26)
+ax.set_title("(c) OV: digit value → logit", pad=13)
 ax.text(
     0.5,
     1.02,
@@ -102,13 +103,14 @@ ax.text(
     ha="center",
     va="bottom",
     color="0.35",
-    fontsize=10,
+    fontsize=7.5,
 )
-ax.set_xlabel("digit value (0–9)", fontsize=11)
-ax.set_ylabel("OV→logit", fontsize=11)
+ax.set_xticks(range(10))
+ax.set_xlabel("digit value")
+ax.set_ylabel("OV→logit")
 ax.axhline(0, color="0.7", lw=0.6)
-ax.grid(alpha=0.3)
-ax.legend(fontsize=9)
+ax.grid(axis="y", alpha=0.3)
+ax.legend(fontsize=7.5)
 
 fig.tight_layout()
 out = FIGURES / "reader_head.png"

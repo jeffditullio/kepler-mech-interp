@@ -15,9 +15,12 @@ Per layer, two key-position profiles (one line per head) over the (M,e) grid:
             common floor the deeper places share)
   e-sens  -- std over e of that attention (M-averaged): where reading moves with e
 
-Stdout prints each field's mean-attention share and the per-place mean attention
-(the numbers behind the paper's "separates only the top two places per field;
-deeper places share a common floor").
+Stdout prints each field's mean-attention share, the per-place mean attention
+(the numbers behind "attention concentrates on the leading places; deeper
+places share a common floor"), the per-place e-sensitivity, and the leading-
+digit summary behind the Fig. 4b caption and App. F: head ratio at the leading
+e digit, each head's leading-M / leading-e ratio, and the correlation across e
+of the leading-M and leading-e reads (softmax renormalization echo).
 
 Sequence layout is derived from cfg.n_digits = d (NOT hardcoded): positions
 0..d-1 = M digits, d..2d-1 = e digits, 2d = ANS (the readout);
@@ -38,6 +41,7 @@ from src.analysis._cli import Result, run_tool, step_suffix
 from src.core.data import make_eval_grid, make_eval_inputs, positions
 from src.core.runs import Bundle, build_model
 from src.instrument.capture import recompute_qkv, token_batches
+from src.kernels.metrics import attention_e_sensitivity
 
 
 @torch.no_grad()
@@ -72,8 +76,7 @@ def patterns(cfg, ck, device, pos):
     return {li: np.concatenate(v) for li, v in grabbed.items()}, MM, EE
 
 
-def plot(attn, MM, EE, layout, pos, out_path):
-    n_e, n_M = MM.shape
+def plot(attn, e_sens_by_layer, layout, pos, out_path):
     n_layers = len(attn)
     nh = next(iter(attn.values())).shape[1]
     L = next(iter(attn.values())).shape[2]
@@ -88,10 +91,8 @@ def plot(attn, MM, EE, layout, pos, out_path):
     plt.rcParams.update({"font.size": 13, "axes.titlesize": 13})
     fig, axes = plt.subplots(n_layers, 2, figsize=(11, 3.2 * n_layers), squeeze=False)
     for li in range(n_layers):
-        A = attn[li]  # (N, nh, L)
-        grid = A.reshape(n_e, n_M, nh, L)
-        mean = A.mean(axis=0)  # (nh, L)
-        e_sens = grid.mean(axis=1).std(axis=0)  # (nh, L): std over e of M-avg
+        mean = attn[li].mean(axis=0)  # (nh, L)
+        e_sens = e_sens_by_layer[li]  # (nh, L)
         panels = (
             (axes[li][0], mean, "mean attn", "attn weight (log)", "log"),
             (axes[li][1], e_sens, "e-sensitivity", "std of attn weight", "linear"),
@@ -149,6 +150,7 @@ def analyze(bundle: Bundle, pos: int | None = None) -> Result:
     pos        the query position analyzed (default: readout = ANS token)
     share      layer -> {field label: mean-attn share over M | e | ANS}
     mean_attn  layer -> (n_heads, L) grid-mean attention per key position
+    e_sens     layer -> (n_heads, L) std over e of the M-averaged attention
     """
     cfg, ck, device = bundle.cfg, bundle.ck, bundle.device
     layout = positions(cfg)
@@ -157,19 +159,23 @@ def analyze(bundle: Bundle, pos: int | None = None) -> Result:
         pos = readout
     if not 0 <= pos <= readout:
         raise SystemExit(f"--pos {pos} out of range [0, {readout}]")
-    attn, MM, EE = patterns(cfg, ck, device, pos)
+    attn, MM, _EE = patterns(cfg, ck, device, pos)
+    n_e, n_M = MM.shape
+    e_sens_by_layer = {li: attention_e_sensitivity(A, n_e, n_M) for li, A in attn.items()}
 
     sfx = step_suffix(bundle.step)
     sfx += "" if pos == readout else f"_pos{pos}"
     out_path = bundle.ckpt_path.with_name(f"readout_attention{sfx}.png")
-    plot(attn, MM, EE, layout, pos, out_path)
+    plot(attn, e_sens_by_layer, layout, pos, out_path)
     out = [f"wrote {out_path}"]
 
     d = layout["M"].stop
+    leading_M, leading_e = layout["M"].start, layout["e"].start
     roles = {f"M(0-{d - 1})": layout["M"], f"e({d}-{2 * d - 1})": layout["e"], f"ANS{2 * d}": slice(2 * d, 2 * d + 1)}
     share_by_layer, mean_by_layer = {}, {}
     for li in range(len(attn)):
         mean = attn[li].mean(axis=0)  # (nh, L)
+        e_sens = e_sens_by_layer[li]  # (nh, L)
         share = {r: mean[:, s].sum() / mean.sum() for r, s in roles.items()}
         share_by_layer[li] = {r: float(v) for r, v in share.items()}
         mean_by_layer[li] = mean
@@ -179,7 +185,32 @@ def analyze(bundle: Bundle, pos: int | None = None) -> Result:
             e_places = " ".join(f"{w:.3f}" for w in mean[h, d : 2 * d])
             ans = f"{mean[h, 2 * d]:.3f}"
             out.append(f"layer{li} head{h} mean attn per place  M: {m_places}  e: {e_places}  ANS: {ans}")
-    return Result("\n".join(out), pos=pos, share=share_by_layer, mean_attn=mean_by_layer)
+        for h in range(mean.shape[0]):
+            m_places = " ".join(f"{w:.4f}" for w in e_sens[h, :d])
+            e_places = " ".join(f"{w:.4f}" for w in e_sens[h, d : 2 * d])
+            ans = f"{e_sens[h, 2 * d]:.4f}"
+            out.append(f"layer{li} head{h} e-sens per place   M: {m_places}  e: {e_places}  ANS: {ans}")
+        # The leading-digit summary (Fig. 4b caption; App. F): which head's read of
+        # the leading e digit moves most with e, how much the leading M digit's
+        # read moves alongside it, and in which direction (the softmax echo).
+        M_profile = attn[li].reshape(n_e, n_M, *attn[li].shape[1:]).mean(axis=1)  # (n_e, nh, L)
+        lead_e = e_sens[:, leading_e]
+        top = int(lead_e.argmax())
+        head_ratio = "  ".join(
+            f"head{top}/head{h}={lead_e[top] / lead_e[h]:.2f}" for h in range(len(lead_e)) if h != top
+        )
+        out.append(
+            f"layer{li} leading-e e-sens per head: "
+            + "  ".join(f"head{h}={v:.4f}" for h, v in enumerate(lead_e))
+            + f"  ({head_ratio})"
+        )
+        for h in range(len(lead_e)):
+            corr = np.corrcoef(M_profile[:, h, leading_M], M_profile[:, h, leading_e])[0, 1]
+            out.append(
+                f"layer{li} head{h} leading-M/leading-e e-sens ratio {e_sens[h, leading_M] / e_sens[h, leading_e]:.2f}"
+                f"  corr across e of the two reads {corr:+.2f}"
+            )
+    return Result("\n".join(out), pos=pos, share=share_by_layer, mean_attn=mean_by_layer, e_sens=e_sens_by_layer)
 
 
 def main() -> None:

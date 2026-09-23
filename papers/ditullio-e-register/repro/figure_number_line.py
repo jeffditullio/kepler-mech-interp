@@ -18,7 +18,8 @@
               unlettered so the main figure carries no appendix panel letters).
 
 Stdout is narration; the citable numbers live in model_metrics.csv (the |Pearson| rotation sweep
-stat) and the worst-code table rows (primary + every model with excess >= 0.15).
+stat) and the curvature census (primary + every model with excess >= 0.15; the four
+above the 0.42 circle calibration are App C's curved codes, the rest its milder bin).
 
 Run: uv run python papers/ditullio-e-register/repro/figure_number_line.py
 """
@@ -72,15 +73,15 @@ def short_label(name):
 most_rotated = sorted((p, n) for n, p in pearson.items() if n != PRIMARY)[:4]
 models = [(PRIMARY, "primary")] + [(n, short_label(n)) for _, n in most_rotated]
 
-# Rendered at 5.5in text width in the PDF (~13.5in native after tight bbox),
-# so page point size ~= 0.41x these values: base 13 -> ~5.3pt ticks on page.
-# Type hierarchy: title 16 > formula xlabels 13 = ticks 13 > subtitle/axis names 12.
-plt.rcParams.update({"font.size": 13, "axes.titlesize": 16, "axes.labelsize": 12})
+# Both figures print at 5.5in (ICLR) / 6.0in (workshop) text width. Drawn at
+# ~7.2in native so the page scale is ~0.75-0.85 and 8pt here prints at 6-7pt.
+# Type hierarchy: title 9 > ticks / formula xlabels 8 > subtitle 7.5.
+plt.rcParams.update({"font.size": 8, "axes.titlesize": 9, "axes.labelsize": 8})
 
 # The scatter figure (number_line_geometry.png): tickless panels pack tight; the only
 # gutter is (a)'s ylabel. Headroom above the axes carries title + share/L subtitle.
-fig_scatter = plt.figure(figsize=(16, 3.4))
-gs_top = gridspec.GridSpec(1, 5, left=0.03, right=0.99, top=0.74, bottom=0.14, wspace=0.12)
+fig_scatter = plt.figure(figsize=(7.2, 1.75))
+gs_top = gridspec.GridSpec(1, 5, left=0.04, right=0.99, top=0.72, bottom=0.14, wspace=0.12)
 
 for j, (name, label) in enumerate(models):
     ax = fig_scatter.add_subplot(gs_top[0, j])
@@ -89,10 +90,10 @@ for j, (name, label) in enumerate(models):
     proj, var = pca(digits)
     x, y = proj[:, 0], proj[:, 1]
     ax.plot(x, y, "-", color="0.75", lw=1.2, zorder=1)  # connect in digit order
-    ax.scatter(x, y, c=range(10), cmap="viridis", s=260, zorder=2)
+    ax.scatter(x, y, c=range(10), cmap="viridis", s=70, zorder=2)
     for i in range(10):
-        ax.annotate(str(i), (x[i], y[i]), fontsize=12, ha="center", va="center", color="white", weight="bold", zorder=3)
-    ax.set_title(f"({'abcde'[j]}) {label}", pad=26)
+        ax.annotate(str(i), (x[i], y[i]), fontsize=6, ha="center", va="center", color="white", weight="bold", zorder=3)
+    ax.set_title(f"({'abcde'[j]}) {label}", pad=13)
     ax.text(
         0.5,
         1.02,
@@ -100,7 +101,7 @@ for j, (name, label) in enumerate(models):
         transform=ax.transAxes,
         ha="center",
         va="bottom",
-        fontsize=12,
+        fontsize=7.5,
         color="0.35",
     )
     ax.set_xlabel("PC1")
@@ -131,7 +132,7 @@ def ref_line(ax, xv, label, ideal=False, shade=None):
         0.80,
         label,
         transform=ax.get_xaxis_transform(),
-        fontsize=13,
+        fontsize=8,
         color=color,
         rotation=90,
         va="top",
@@ -154,7 +155,7 @@ def mark_models(ax, values):
             0.90,
             marker="v",
             color="black" if is_primary else "0.55",
-            ms=7 if is_primary else 6,
+            ms=5 if is_primary else 4,
             transform=tr,
             clip_on=False,
         )
@@ -168,8 +169,8 @@ print("wrote", out)
 
 # The histogram figure (number_line_universality.png): one panel per battery metric, family models.
 # Two-line titles (statistic, then the property it tests) need the extra headroom.
-fig_hist = plt.figure(figsize=(16, 3.5))
-gs_bottom = gridspec.GridSpec(1, 4, left=0.05, right=0.99, top=0.80, bottom=0.18, wspace=0.2)
+fig_hist = plt.figure(figsize=(7.2, 2.1))
+gs_bottom = gridspec.GridSpec(1, 4, left=0.06, right=0.99, top=0.78, bottom=0.26, wspace=0.25)
 
 ax_line = fig_hist.add_subplot(gs_bottom[0, 0])
 ax_line.hist(L, bins=20, color="C0", edgecolor="white")
@@ -177,27 +178,27 @@ ax_line.set_xlim(left=0)  # room to see the ruled-out zone below 0.11
 ref_line(ax_line, 0.11, "structureless", shade="left")  # thresholds' numbers live in the caption
 mark_models(ax_line, [float(by_name[n]["L"]) for n in shown_names])
 ax_line.set_title("(a) L:\nlinear structure")
-ax_line.set_xlabel(r"$\|X_c\,\hat{v}\|^2 \,/\, \|X_c\|^2$", fontsize=13)
+ax_line.set_xlabel(r"$\|X_c\,\hat{v}\|^2 \,/\, \|X_c\|^2$")
 ax_line.set_ylabel("# models")
 
 ax_excess = fig_hist.add_subplot(gs_bottom[0, 1])
 ax_excess.hist(excess, bins=20, color="C1", edgecolor="white")
-ax_excess.set_xlim(left=-0.04)  # margin so the vertical "straight" label clears the tall 0-bin bar
+ax_excess.set_xlim(left=-0.075)  # margin so the vertical "straight" label clears the tall 0-bin bar
 ref_line(ax_excess, 0.0, "straight", ideal=True)
 ref_line(ax_excess, 0.42, "circle", shade="right")
 mark_models(ax_excess, [float(by_name[n]["excess"]) for n in shown_names])
 ax_excess.set_title("(b) excess:\ncurvature (PC basis)")
-ax_excess.set_xlabel("r²(value | PC1+PC2) − r²(value | PC1)", fontsize=13)
+ax_excess.set_xlabel("r²(value | PC1+PC2)\n− r²(value | PC1)")
 ax_excess.set_ylabel("")  # shares (d)'s ylabel; three repeats collide at this size
 
 ax_ramp = fig_hist.add_subplot(gs_bottom[0, 2])
 ax_ramp.hist(ramp_dev, bins=20, color="C4", edgecolor="white")
-ax_ramp.set_xlim(-0.012, 0.22)  # margins for the vertical labels; clock's 0.61 noted in the caption
+ax_ramp.set_xlim(-0.028, 0.22)  # margins for the vertical labels; clock's 0.61 noted in the caption
 ref_line(ax_ramp, 0.0, "ramp", ideal=True)
 ref_line(ax_ramp, 0.19, "flat/random", shade="right")
 mark_models(ax_ramp, [float(by_name[n]["ramp_dev"]) for n in shown_names])
 ax_ramp.set_title("(c) ramp_dev:\nramp deviation (Fourier)")
-ax_ramp.set_xlabel("max |digit spectrum − ideal ramp|", fontsize=13)
+ax_ramp.set_xlabel("max |digit spectrum\n− ideal ramp|")
 ax_ramp.set_ylabel("")
 
 ax_openness = fig_hist.add_subplot(gs_bottom[0, 3])
@@ -206,7 +207,7 @@ ax_openness.set_xlim(left=0.5)  # room to see the ruled-out zone at the clock's 
 ref_line(ax_openness, 1.0, "round clock", shade="left")
 mark_models(ax_openness, [float(by_name[n]["openness"]) for n in shown_names])
 ax_openness.set_title("(d) openness:\nendpoint gap")
-ax_openness.set_xlabel("‖emb(0)−emb(9)‖ / mean step", fontsize=13)
+ax_openness.set_xlabel("‖emb(0)−emb(9)‖\n/ mean step")
 ax_openness.set_ylabel("")
 
 out = FIGURES / "number_line_universality.png"
@@ -222,7 +223,7 @@ n_below = sum(1 for p in pearson.values() if p < 0.95)
 print(f"\n|Pearson|(PC1, value) < 0.95: {n_below}/{len(pearson)} models; four lowest (scatter panels b-e):")
 for p, n in most_rotated:
     print(f"  {n:44s} |Pearson|={p:.3f}")
-print("\nWorst-code table rows (primary + every model with excess >= 0.15, descending excess):")
+print("\nCurvature census (primary + every model with excess >= 0.15, descending; >= 0.42 = curved):")
 print(f"  {'model':44s} {'L':>5} {'p_L':>7} {'|Pear|':>6} {'excess':>6} {'ramp':>6} {'open':>5}")
 curved = sorted((float(by_name[n]["excess"]), n) for n in by_name if float(by_name[n]["excess"]) >= 0.15)
 for _, n in [(None, PRIMARY), *reversed(curved)]:

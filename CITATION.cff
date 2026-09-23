@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: "If you use this code or the model family, please cite the paper."
-title: "Small Transformers Learn Kepler's Equation with a Stubborn Number Line and an Eccentricity Register"
+title: "Small Transformers Learn Kepler's Equation with a Number Line and an Eccentricity Register"
 authors:
   - family-names: DiTullio
     given-names: Jeff
@@ -9,7 +9,7 @@ year: 2026
 repository-code: "https://github.com/jeffditullio/kepler-mech-interp"
 preferred-citation:
   type: article
-  title: "Small Transformers Learn Kepler's Equation with a Stubborn Number Line and an Eccentricity Register"
+  title: "Small Transformers Learn Kepler's Equation with a Number Line and an Eccentricity Register"
   authors:
     - family-names: DiTullio
       given-names: Jeff

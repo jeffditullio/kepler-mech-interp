@@ -14,9 +14,6 @@ dependencies = [
 [dependency-groups]
 dev = [
     "ruff>=0.9,<1",
-    # paper PDF build (papers/*/repro/build_pdf.py): pandoc + typst as wheels, no system TeX
-    "pypandoc-binary>=1.13",
-    "typst>=0.13",
     "pytest>=9.1.1",
 ]
 

@@ -25,9 +25,8 @@ tool tiers live in src/analysis/runner.py and are reusable outside papers/ditull
                  mismatch = discovery, enforced not eyeballed).
   5. figures     repro/figure_*.py, the composed paper exhibits
                  -> figures/*.png (incl. figure_scaling.py = scaling.png).
-  6. pdf         repro/build_pdf.py -> paper/draft.pdf      [--pdf, opt-in]
 
-    uv run python papers/ditullio-e-register/reproduce_analysis.py            # everything except training + pdf
+    uv run python papers/ditullio-e-register/reproduce_analysis.py            # everything except training
     uv run python papers/ditullio-e-register/reproduce_analysis.py --primary  # just the PRIMARY model
     uv run python papers/ditullio-e-register/reproduce_analysis.py --models "d16_*"   # incremental: matching
                                              # models only, rows MERGED into
@@ -91,7 +90,6 @@ def main():
         "(default: clean-slate over all models — the ground-truth regen)",
     )
     ap.add_argument("--skip-figures", action="store_true", help="skip the composed paper figures")
-    ap.add_argument("--pdf", action="store_true", help="also rebuild paper/draft.pdf (opt-in)")
     args = ap.parse_args()
     for d in (FIG, TAB):
         d.mkdir(exist_ok=True)
@@ -141,6 +139,8 @@ def main():
 
     print("cross-model fits:")
     run_script(REPRO / "scaling_fit.py")
+    print("legibility across widths (tables/legibility_by_width.csv):")
+    run_script(REPRO / "legibility_by_width.py")
     print("circuit aggregation (parses frozen audits into tables/circuit_metrics.csv):")
     run_script(REPRO / "circuit_tables.py")
     print("weighted-OV robustness check (tables/weighted_ov.csv):")
@@ -149,7 +149,7 @@ def main():
     run_script(REPRO / "checks.py")
     if not args.skip_figures:
         print("composed paper figures:")
-        # Paper placement lives in draft.md/claims.md only (figures move;
+        # Paper placement lives in claims.md only (figures move;
         # this list doesn't track their numbering). Order is arbitrary.
         for s in (
             "figure_hero.py",
@@ -157,7 +157,6 @@ def main():
             "figure_number_line.py",  # reads model_metrics.csv (family filter)
             "figure_reader_head.py",
             "figure_e_register.py",  # parses models/*/_analysis/
-            "figure_wrap_progress.py",
             "figure_mlp_neurons.py",
             "figure_classical_ladder.py",  # emits tables/classical_ladder.csv
             "figure_position_geometry.py",  # emits tables/position_geometry.csv
@@ -167,8 +166,6 @@ def main():
             "figure_scaling.py",
         ):
             run_script(REPRO / s)
-    if args.pdf:
-        run_script(REPRO / "build_pdf.py")
 
 
 if __name__ == "__main__":

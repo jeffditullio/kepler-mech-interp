@@ -69,7 +69,7 @@ def cmd(m):
         + (["--E-wrap"] if m.get("E_wrap") else [])
     )
     # NOTE: the shipped extM models carry step*.pt snapshots that
-    # figure_wrap_progress.py reads; this recipe regenerates finals only.
+    # the circle_progress audit reads; this recipe regenerates finals only.
 
 
 def main():

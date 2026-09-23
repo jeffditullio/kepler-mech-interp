@@ -11,7 +11,11 @@ phase circle rides on top: a helix). Read the gain at the PREDICTED f against
 two nulls: the same model at wrong f (the best-f scan) and the primary
 (line-code) model, whose gains are pure Guttman-arc curvature.
 
-1-layer models only (the layer-0 write is closed-form in the weights).
+1-layer models only (the layer-0 write is closed-form in the weights). Runs on
+the standard one-rotation range too: there the predicted frequency at place j
+is 10^-(j+1) rotations per digit step and the gain is pure Guttman-arc
+curvature, the line-code null the wrap study reads its circle gain against
+(App. D quotes the primary's places-0+1 sum).
 
 Usage:
     uv run python -m src.analysis.circle_probe d8_l1_h2_gelu_lin_mse_800k_M50r_Ewrap_s0
@@ -20,7 +24,7 @@ Usage:
 import numpy as np
 import torch
 
-from src.analysis._cli import Result, Skip, check_extended_M, run_tool
+from src.analysis._cli import Result, Skip, run_tool
 from src.core.config import VOCAB_SIZE
 from src.core.runs import Bundle, build_model
 from src.kernels.geometry import circle_gain, predicted_place_frequency
@@ -62,8 +66,6 @@ def analyze(bundle: Bundle, places: int = 6) -> Result | Skip:
     rows  (place, f_pred, gain_at_pred, best_f, gain_at_best) per M place
     """
     cfg, ck = bundle.cfg, bundle.ck
-    if skip := check_extended_M(cfg):
-        return skip
     if cfg.n_layers != 1:
         return Skip("circle_probe reads the layer-0 write in closed form; 1-layer models only")
     model = build_model(cfg, ck, torch.device("cpu"))
@@ -74,7 +76,9 @@ def analyze(bundle: Bundle, places: int = 6) -> Result | Skip:
     out.append("  place  f_pred   gain@f_pred  best_f  gain@best")
     for j, fp, g_pred, f_best, g_best in rows:
         out.append(f"   {j}    {fp:.4f}   {g_pred:+.3f}       {f_best:.3f}   {g_best:+.3f}")
-    return Result("\n".join(out), rows=rows)
+    gain_places_01 = sum(row[2] for row in rows[:2])
+    out.append(f"  circle gain, M places 0+1: {gain_places_01:.3f}")
+    return Result("\n".join(out), rows=rows, gain_places_01=gain_places_01)
 
 
 def _flags(p) -> None:
