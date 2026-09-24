@@ -8,12 +8,13 @@ splits between attention and MLP is NOT universal -- it depends on architecture
 (activation/depth/width/heads). This tool measures that split per model, as the
 instrument for the disentangling sweep.
 
-LayerNorm-exact attribution: logit = head . ln_f(resid). Freeze the per-input
-std sigma_i = std(resid_24); then each component c contributes
-    (c_24 @ w_eff) / sigma_i,   w_eff = head.weight * ln_f.gain
-(mean-subtraction is a per-input DC term -> harmonic n=0 only, ignored). With
-the 1/sigma included, sum of component contributions == the logit (self-check
-corr ~ 1.0), so amplitudes are absolute, not just relative.
+LayerNorm-exact attribution (direct logit attribution, capture.ln_exact_terms):
+each component c contributes
+    (c . w_c) / sigma(x),   w_c = w_eff - mean(w_eff),   w_eff = head.weight * ln_f.gain
+at the readout position, with sigma(x) the final LayerNorm's per-input std.
+The component rows plus a constant sum to the logit exactly, so amplitudes
+are absolute, not just relative. The mean subtraction is NOT a harmonic-0
+offset: mean(x) varies with the input, so dropping it moves the split.
 
 Outputs:
   - self-check corr(sum components, logit)
@@ -32,7 +33,7 @@ import torch
 from src.analysis._cli import Result, Skip, check_final_ln, run_tool
 from src.core.data import clean_grid_inputs
 from src.core.runs import Bundle, build_model
-from src.instrument.capture import ans_embedding, token_batches, w_eff, write_projection_hook
+from src.instrument.capture import ans_embedding, centered_readout, ln_exact_terms, raw_write_hook, token_batches
 from src.kernels.harmonics import harmonic_coeffs
 from src.kernels.metrics import logit_from_output
 
@@ -40,12 +41,10 @@ from src.kernels.metrics import logit_from_output
 @torch.no_grad()
 def capture(cfg, ck, inputs, device):
     model = build_model(cfg, ck, device)
-    w = w_eff(model)  # (d_model,)
-    eps = model.ln_f.eps
+    w_c = centered_readout(model)  # (d_model,)
     nL = len(model.blocks)
-    cap = {f"attn{i}": [] for i in range(nL)}
-    cap.update({f"mlp{i}": [] for i in range(nL)})
-    cap.update({"emb": [], "sigma": [], "out": []})
+    writes = {}
+    emb, out = [], []
     hid = {f"mlp{i}": [] for i in range(nL)}
     g = {}
 
@@ -56,23 +55,18 @@ def capture(cfg, ck, inputs, device):
         return h
 
     for i, blk in enumerate(model.blocks):
-        blk.attn.register_forward_hook(write_projection_hook(cap, f"attn{i}", w))
-        blk.mlp.register_forward_hook(write_projection_hook(cap, f"mlp{i}", w))
+        blk.attn.register_forward_hook(raw_write_hook(writes, f"attn{i}"))
+        blk.mlp.register_forward_hook(raw_write_hook(writes, f"mlp{i}"))
         blk.mlp.fc2.register_forward_pre_hook(hd(f"mlp{i}"))
-        g[f"mlp{i}"] = (w @ blk.mlp.fc2.weight).detach().cpu().numpy()
-
-    def sig_hook(_m, inp):
-        x = inp[0][:, -1, :]
-        cap["sigma"].append(torch.sqrt(x.var(-1, unbiased=False) + eps).cpu().numpy())
-
-    model.ln_f.register_forward_pre_hook(sig_hook)
+        g[f"mlp{i}"] = (w_c @ blk.mlp.fc2.weight).detach().cpu().numpy()
 
     for tok in token_batches(inputs, device):
-        cap["emb"].append((ans_embedding(model, tok) @ w).cpu().numpy())
-        cap["out"].append(model(tok).cpu().numpy())
-    cat = {k: np.concatenate(v) for k, v in cap.items()}
+        emb.append(ans_embedding(model, tok).cpu().numpy())
+        out.append(model(tok).cpu().numpy())
+    comps = {"emb": np.concatenate(emb), **{k: np.concatenate(v) for k, v in writes.items()}}
+    terms, const, sigma = ln_exact_terms(model, comps)
     hid = {k: np.concatenate(v) for k, v in hid.items()}
-    return cat, hid, g, nL
+    return terms, const, sigma, np.concatenate(out), hid, g, nL
 
 
 def harm_energy(grid_1d, ne, nM, nh):
@@ -102,26 +96,25 @@ def analyze(bundle: Bundle, n_M: int = 256, n_e: int = 200, n_harm: int = 8) -> 
     e_vals = np.linspace(0.0, cfg.e_max, ne)
     inputs, M, MM, EE = clean_grid_inputs(cfg, n_M, e_vals)
 
-    cat, hid, g, nL = capture(cfg, ck, inputs, device)
-    sigma = cat["sigma"]
+    contrib, const, sigma, model_out, hid, g, nL = capture(cfg, ck, inputs, device)
     comp_names = ["emb"] + [f"{kind}{i}" for i in range(nL) for kind in ("attn", "mlp")]
-    contrib = {k: cat[k] / sigma for k in comp_names}  # 1/sigma fix
-    model_out = cat["out"]
     # logit: linear -> out; bounded -> inverse map (kernels.metrics)
     act = getattr(cfg, "out_activation", "sigmoid")
     logit = logit_from_output(model_out, act)
 
-    recon = sum(contrib.values())
+    recon = sum(contrib.values()) + const
     r = float(np.corrcoef(recon, logit)[0, 1])
+    max_error = float(np.abs(recon - logit).max())
     out = []
     out.append(f"{bundle.run_name} (step {ck.get('step', '?')})  N={nL}-layer  out={act}")
-    out.append(f"  self-check corr(sum components, logit) = {r:.4f}")
+    out.append(f"  self-check corr(sum components + const, logit) = {r:.4f}   max |sum - logit| {max_error:.1e}")
 
     energies = {}
     for k in comp_names:
         b, a, E = harm_energy(contrib[k], ne, nM, nh)
         energies[k] = E
-    tot = sum(energies[k] for k in comp_names if k != "emb")  # emb is DC/const
+    # shares split between the writes; emb's row varies only through the shared scale
+    tot = sum(energies[k] for k in comp_names if k != "emb")
     attn_share = sum(energies[k] for k in comp_names if k.startswith("attn")) / (tot + 1e-30)
     mlp_share = sum(energies[k] for k in comp_names if k.startswith("mlp")) / (tot + 1e-30)
     out.append(

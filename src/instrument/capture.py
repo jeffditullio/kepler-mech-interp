@@ -96,6 +96,14 @@ def raw_write_hook(store, name):
     return hook
 
 
+def centered_readout(model):
+    """w_eff with its mean removed: the final LayerNorm's mean subtraction
+    folded into the readout, w_c . x == w_eff . (x - mean(x)). The direction
+    direct logit attribution projects each write onto (ln_exact_terms)."""
+    w = w_eff(model)
+    return w - w.mean()
+
+
 def ln_exact_terms(model, comps):
     """The exact per-component split of the logit through the final LayerNorm.
     With x the sum of the raw writes at the readout position,
@@ -114,7 +122,7 @@ def ln_exact_terms(model, comps):
     if isinstance(model.ln_f, torch.nn.Identity):
         w_c, sigma, const = w, np.ones(n), float(model.head.bias.item())
     else:
-        w_c = w - w.mean()
+        w_c = centered_readout(model).cpu().numpy()
         mu = x.mean(axis=1, keepdims=True)
         sigma = np.sqrt(((x - mu) ** 2).mean(axis=1) + model.ln_f.eps)
         const = float(model.head.bias.item() + (model.head.weight[0] @ model.ln_f.bias).item())
